@@ -1,0 +1,5 @@
+build/
+run*/
+VALIDATION.json
+*.h5
+__pycache__/

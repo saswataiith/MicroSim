@@ -1,3 +1,7 @@
+import os
+import sys
+from pathlib import Path
+from table_utils import output_directory, phase_frame, common_phase_frame, write_composition_tables
 from tc_python import *
 import pandas as pd
 import json
@@ -36,13 +40,12 @@ num_steps = int(T_max-T_min)
 
 current_dir = os.getcwd()
 
-# Create a new directory because it does not exist
-isExist = os.path.exists('tdbs_encrypted_'+material)
-if not isExist:
-   os.mkdir('tdbs_encrypted'+material)
-os.chdir('tdbs_encrypted'+material)
-
-logging.info('Directory is created : tdbs_encrypted_'+material)
+# Reuse a deterministic output directory on repeated exports.
+output_dir = output_directory(material).resolve()
+os.chdir(output_dir)
+manifest = {'status': 'incomplete', 'material': material, 'thermodynamic_database': Thermodatabase, 'kinetic_database': Kineticdatabase, 'temperature_unit': 'K', 'phase_composition_unit': 'mole_fraction', 'hessian_basis': 'phase_tie_line_mole_composition', 'mobility_exported': False}
+Path('export_manifest.json').write_text(json.dumps(manifest, indent=2))
+logging.info('Output directory: %s', output_dir)
 
 #Strart the thermocalc Calculation
 with TCPython() as start:
@@ -55,34 +58,16 @@ with TCPython() as start:
     comp_system = S1.Eq_composition(calculation_setup, num_steps)
     logging.info('The instace for equilibrium composition is created from '+str(T_min)+' to '+str(T_max)+' with_property_diagram_calculation')
 
-    for i in range(len(Active_phases)):
-        temp = comp_system.get_values_grouped_by_quantity_of(ThermodynamicQuantity.temperature(), "X("+Active_phases[i]+",*)")
-        logging.info('The equilibrium composition calculation is performed for '+Active_phases[i])
-        if i == 0:
-            df1= pd.DataFrame({'Temperature': (temp[solutes[0]+' in '+Active_phases[i]]).x})
-        
-        dft = pd.DataFrame()
-        for group in temp.values():
-            colHeader = group.label[0: 2:].replace(" ", "")+ "@" + Active_phases[i]
-            dft[colHeader] = group.y
-    
-        dft = dft.drop(solvent+'@'+Active_phases[i], axis=1)
-        dft = dft[S1.order('@'+Active_phases[i], 0)]
-        df1 = pd.concat([df1, dft], axis=1)
-
-    temp = comp_system.get_values_grouped_by_quantity_of(ThermodynamicQuantity.temperature(), "X("+matrix_pahse+",*)")
-    dft = pd.DataFrame()
-    for group1 in temp.values():
-        colHeader = group1.label[0: 2:].replace(" ", "") +"@"+matrix_pahse
-        dft[colHeader] = group1.y
-    
-    dft = dft.drop(solvent+'@'+matrix_pahse, axis=1)
-    dft = dft[S1.order('@'+matrix_pahse,0)]
-    df1 = pd.concat([df1, dft], axis=1)
-
-
-    df1.to_csv('Composition_'+material+'.csv', index=False)
-    logging.info('The composition data is saved as Composition_'+material+'.csv')
+    # Phase intervals can have different temperature grids. Join on T before
+    # exporting any tie-line or Hessian values.
+    frames = []
+    for phase in Active_phases + [matrix_pahse]:
+        groups = comp_system.get_values_grouped_by_quantity_of(
+            ThermodynamicQuantity.temperature(), "X(" + phase + ",*)")
+        frames.append(phase_frame(groups, phase, solutes))
+    df1 = common_phase_frame(frames)
+    df1.to_csv('Composition_' + material + '.csv', index=False)
+    write_composition_tables(df1, Active_phases, matrix_pahse, solutes)
 
     #Calculating the Hessian values from the Hessian_setup
     logging.info('Instance for hessian calculation is created with_single_equilibrium_calculation')
@@ -99,7 +84,8 @@ with TCPython() as start:
             dfphase.at[i,"Temperature"]= calc_temp
             
             #set condition for Hessian calculation
-            l = S1.Hessian_calculation(Hessian_setup, calc_temp)
+            phase_composition = [float(df1.at[i, element + "@" + phase]) for element in solutes]
+            l = S1.Hessian_calculation(Hessian_setup, calc_temp, phase_composition)
 
             for j1, s1 in zip(range(len(solutes)),solutes):
                 for j2, s2 in zip(range(len(solutes)),solutes):
@@ -116,9 +102,10 @@ with TCPython() as start:
             dfphase.to_csv("HSN_"+phase+".csv",index=False)
             logging.info('Hessian data for '+phase+' is saved to .csv file')
 
-#Delete the cache folders
-logging.info('The calculation is completed!')
-shutil.rmtree(os.path.basename(material[:-4]) + "_cache")
+manifest['status'] = 'complete'
+Path('export_manifest.json.tmp').write_text(json.dumps(manifest, indent=2))
+os.replace('export_manifest.json.tmp', 'export_manifest.json')
+
+# Preserve calculation caches for provenance and avoid deleting unrelated files.
 os.chdir(current_dir)
-shutil.rmtree("__pycache__")
-logging.info('The cache files are delelted')
+logging.info('Calculation complete. Mobility matrices are not exported by this script.')

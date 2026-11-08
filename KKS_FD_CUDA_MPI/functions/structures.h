@@ -100,6 +100,13 @@ typedef struct controls
     // Keeps an account of phase-field variables that have non-zero eigen-strain
     // Zero eigen-strain -> no computation required
     int *eigenSwitch;
+
+    // Inhomogeneous elasticity solver (computeElasticInhom.cu)
+    int    ELASTICITY_INHOM;   // 1: use the iterative inhomogeneous solver
+    double inhomTol;           // convergence tolerance on |u_new - u_old|
+    long   inhomMaxIter;       // max solver iterations per time step
+    int    inhomNorm;          // 0: L2 (cuBLAS+MPI), 1: max (CUB+NCCL)
+    int    inhomStrict;        // 1: abort if not converged within inhomMaxIter
 } controls;
 
 typedef struct symmetric_tensor
@@ -169,6 +176,8 @@ typedef struct simParameters
     // Elasticity variables
     symmetric_tensor *eigen_strain;
     Stiffness_cubic  *Stiffness_c;
+    // Applied stress (Voigt xx, yy, zz, yz, xz, xy) for the inhomogeneous solver
+    symmetric_tensor sigma_applied;
 } simParameters;
 
 /*

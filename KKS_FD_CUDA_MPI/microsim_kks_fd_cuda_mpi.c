@@ -31,6 +31,7 @@
 #include <cufft.h>
 #include <cufftMp.h>
 #include "calc_bn.h"
+#include "computeElasticInhom.cuh"
 #endif
 
 
@@ -240,7 +241,13 @@ int main(int argc, char *argv[])
     // cuFFTMp variables
     cudaLibXtDesc *phiElDev[simDomain.numPhases], *dfEldphi[simDomain.numPhases], *tempFFT_Shuffled;
 
-    if (simControls.ELASTICITY)
+    // Inhomogeneous elasticity solver context
+    InhomElasticCtx inhomCtx;
+
+    if (simControls.ELASTICITY && simControls.ELASTICITY_INHOM)
+        elasticInhomInit(&inhomCtx, plan, simDomain, simControls, simParams, subdomain, comm);
+
+    if (simControls.ELASTICITY && simControls.ELASTICITY_INHOM == 0)
     {
         for (i = 0; i < simDomain.numPhases; i++)
         {
@@ -251,7 +258,7 @@ int main(int argc, char *argv[])
         CUFFT_CHECK(cufftXtMalloc(plan, &tempFFT_Shuffled, CUFFT_XT_FORMAT_INPLACE_SHUFFLED));
     }
 
-    if (simControls.ELASTICITY)
+    if (simControls.ELASTICITY && simControls.ELASTICITY_INHOM == 0)
     {
         cudaMalloc((void**)&BpqDev, sizeof(double*)*simDomain.numPhases*simDomain.numPhases);
         BpqHost = (double**)malloc(sizeof(double*)*simDomain.numPhases*simDomain.numPhases);
@@ -731,7 +738,13 @@ int main(int argc, char *argv[])
         resetArray(dfdphiDev, simDomain.numPhases, simDomain.DIMENSION, subdomain.sizeX, subdomain.sizeY, subdomain.sizeZ, gridSize, blockSize);
 
         #if ENABLE_CUFFTMP == 1
-        if (simControls.ELASTICITY)
+        if (simControls.ELASTICITY && simControls.ELASTICITY_INHOM)
+        {
+            computeDrivingForce_ElasticInhom(phiDev, dfdphiDev, &inhomCtx, plan,
+                                             simDomain, simControls, simParams, subdomain,
+                                             stream, gridSize, blockSize, comm);
+        }
+        else if (simControls.ELASTICITY)
         {
             if (FFT_Alternate == 1)
             {
@@ -916,7 +929,7 @@ int main(int argc, char *argv[])
     }
 
     #if ENABLE_CUFFTMP == 1
-    if (simControls.ELASTICITY)
+    if (simControls.ELASTICITY && simControls.ELASTICITY_INHOM == 0)
     {
         for (j = 0; j < simDomain.numPhases; j++)
         {
@@ -958,7 +971,14 @@ int main(int argc, char *argv[])
     free(comp);
 
     #if ENABLE_CUFFTMP == 1
-    if (simControls.ELASTICITY)
+    if (simControls.ELASTICITY && simControls.ELASTICITY_INHOM)
+    {
+        elasticInhomFree(&inhomCtx);
+
+        CUFFT_CHECK(cufftDestroy(plan));
+        CUDA_CHECK(cudaStreamDestroy(stream));
+    }
+    else if (simControls.ELASTICITY)
     {
         for (i = 0; i < simDomain.numPhases*simDomain.numPhases; i++)
         {

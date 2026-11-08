@@ -195,12 +195,12 @@ std::pair<BoxIterator<T>,BoxIterator<T>> BoxIterators(Box3D box, T* ptr) {
     return {BoxIteratorBegin<T>(box, ptr),BoxIteratorEnd<T>(box, ptr)};
 }
 
-int64 slabs_displacement(int64 length, int rank, int size) {
+inline int64 slabs_displacement(int64 length, int rank, int size) {
     int ranks_cutoff = length % size;
     return (rank < ranks_cutoff ? rank * (length / size + 1) : ranks_cutoff * (length / size + 1) + (rank - ranks_cutoff) * (length / size));
 }
 
-Box3D buildBox3D(cufftXtSubFormat format, cufftType type, int rank, int size, int64 nx, int64 ny, int64 nz) {
+inline Box3D buildBox3D(cufftXtSubFormat format, cufftType type, int rank, int size, int64 nx, int64 ny, int64 nz) {
     if(format == CUFFT_XT_FORMAT_INPLACE) {
         int64 x_start      = slabs_displacement(nx, rank,   size);
         int64 x_end        = slabs_displacement(nx, rank+1, size);

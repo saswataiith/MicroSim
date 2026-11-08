@@ -1,0 +1,29 @@
+name: Inhomogeneous elasticity host checks
+on:
+  push:
+    branches: [MicroScim-CUDA-InhomElast]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host-and-cpu-mpi:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang pkg-config libgsl-dev libopenmpi-dev openmpi-bin libfftw3-dev libfftw3-mpi-dev libhdf5-openmpi-dev
+          python -m pip install -r tests/requirements.txt
+      - name: Source host regressions
+        run: python tests/run_branch_checks.py
+      - name: CPU MPI acceptance suite
+        working-directory: KKS_CPU_MPI
+        env:
+          MPIEXEC: mpiexec --oversubscribe
+        run: make test HDF5_PKG=hdf5-openmpi PYTHON=python

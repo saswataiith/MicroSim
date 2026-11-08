@@ -43,6 +43,14 @@ BOUNDARY_VALUE = {T,0,0,0,0,0,0};
 ##Model-specific parameters: KKS FFT GPU 
 GRAIN_GROWTH = 0;
 ELASTICITY = 0;
+# Inhomogeneous elasticity solver (requires ELASTICITY = 1 and 3-D domain).
+# Exactly one phase must have non-zero EIGEN_STRAIN (the precipitate).
+ELASTICITY_INHOM = 0;
+INHOM_TOLERANCE = 1e-9;
+INHOM_MAX_ITERATIONS = 50;
+INHOM_NORM = 0;
+INHOM_STRICT = 1;
+APPLIED_STRESS = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 WRITEFORMAT = ASCII;
 TRACK_PROGRESS = 100;
 Function_anisotropy = 1;

@@ -14,6 +14,8 @@ CUFFT_INC        ?= ${NVHPC_HOME}/math_libs/include/cufftmp
 NVSHMEM_LIB      ?= ${NVHPC_HOME}/math_libs/12.0/lib64/compat/nvshmem_2.6.0-1
 GSL_HOME         ?= /opt/spack/opt/spack/linux-ubuntu22.04-skylake_avx512/gcc-11.4.0/gsl-2.7.1-wwnnm54dtynjeyuzdt24v7dfbgy4kjhv
 
+NCCL_HOME        ?= ${NVHPC_HOME}/comm_libs/nccl
+
 # Arguments
 INPUT = Input_austenite_ferrite.in
 FILLING = Filling.in
@@ -45,7 +47,7 @@ GENCODE_FLAGS   := $(GENCODE_SM70)
 NVCCFLAGS = -Xcompiler -march=native -x cu $(GENCODE_FLAGS)
 
 ifeq ($(ENABLE_CUFFTMP), 1)
-CUDALDFLAGS = -L${NVHPC_CUDA_HOME}/lib64 -L${CUFFT_LIB} -lcudart -lm -lcufftMp
+CUDALDFLAGS = -L${NVHPC_CUDA_HOME}/lib64 -L${CUFFT_LIB} -lcudart -lm -lcufftMp -L${NCCL_HOME}/lib -lnccl -lcublas
 else
 CUDALDFLAGS = -L${NVHPC_CUDA_HOME}/lib64 -lcudart -lm
 endif
@@ -58,14 +60,14 @@ FUNCTIONS = ./functions
 TDBS =./tdbs
 
 ifeq ($(ENABLE_CUFFTMP), 1)
-INCFLAGS = -I$(SOLVERLOOP) -I$(FUNCTIONS) -I$(TDBS) -I${CUFFT_INC} -I${MPI_HOME}/include
+INCFLAGS = -I$(SOLVERLOOP) -I$(FUNCTIONS) -I$(TDBS) -I${CUFFT_INC} -I${MPI_HOME}/include -I${NCCL_HOME}/include
 else
 INCFLAGS = -I$(SOLVERLOOP) -I$(FUNCTIONS) -I$(TDBS) -I${MPI_HOME}/include
 endif
 
 host_objects = $(SOLVERLOOP)/obj/fileWriter.o $(FUNCTIONS)/defines.h $(FUNCTIONS)/obj/utilityFunctions.o $(FUNCTIONS)/obj/initialize_variables.o $(FUNCTIONS)/obj/filling.o $(FUNCTIONS)/obj/reading_input_parameters.o $(FUNCTIONS)/obj/fill_domain.o $(FUNCTIONS)/obj/read_boundary_conditions.o $(FUNCTIONS)/obj/calc_bn.o MicroSim_KKS_FD_CUDA_MPI.o Makefile
 
-device_objects = $(TDBS)/obj/Thermo.o $(FUNCTIONS)/obj/functionF.o $(FUNCTIONS)/obj/functionH.o $(FUNCTIONS)/obj/functionTau.o $(FUNCTIONS)/obj/functionW_02.o $(FUNCTIONS)/obj/anisotropy_01.o $(FUNCTIONS)/obj/functionA_01.o $(FUNCTIONS)/obj/functionA_02.o $(FUNCTIONS)/obj/matrix.o $(SOLVERLOOP)/obj/utilityKernels.o $(SOLVERLOOP)/obj/boundary.o $(SOLVERLOOP)/obj/calcPhaseComp.o $(SOLVERLOOP)/obj/smooth.o $(SOLVERLOOP)/obj/computeDrivingForce.o $(FUNCTIONS)/obj/error_checks.o $(SOLVERLOOP)/obj/computeElastic.o $(SOLVERLOOP)/obj/updateComposition.o $(SOLVERLOOP)/obj/updatePhi.o
+device_objects = $(TDBS)/obj/Thermo.o $(FUNCTIONS)/obj/functionF.o $(FUNCTIONS)/obj/functionH.o $(FUNCTIONS)/obj/functionTau.o $(FUNCTIONS)/obj/functionW_02.o $(FUNCTIONS)/obj/anisotropy_01.o $(FUNCTIONS)/obj/functionA_01.o $(FUNCTIONS)/obj/functionA_02.o $(FUNCTIONS)/obj/matrix.o $(SOLVERLOOP)/obj/utilityKernels.o $(SOLVERLOOP)/obj/boundary.o $(SOLVERLOOP)/obj/calcPhaseComp.o $(SOLVERLOOP)/obj/smooth.o $(SOLVERLOOP)/obj/computeDrivingForce.o $(FUNCTIONS)/obj/error_checks.o $(SOLVERLOOP)/obj/computeElastic.o $(SOLVERLOOP)/obj/computeElasticInhom.o $(SOLVERLOOP)/obj/updateComposition.o $(SOLVERLOOP)/obj/updatePhi.o
 
 # Commands
 build: $(KKS_OUT)
@@ -147,6 +149,9 @@ $(SOLVERLOOP)/obj/computeDrivingForce.o: $(SOLVERLOOP)/computeDrivingForce.cu $(
 
 $(SOLVERLOOP)/obj/computeElastic.o: $(SOLVERLOOP)/computeElastic.cu $(SOLVERLOOP)/computeElastic.cuh $(TDBS)/Thermo.cu $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
 	$(NVCC) -DENABLE_CUFFTMP=$(ENABLE_CUFFTMP) -dc $(SOLVERLOOP)/computeElastic.cu -o $(SOLVERLOOP)/obj/computeElastic.o $(INCFLAGS) $(NVCCFLAGS) $(CUDALDFLAGS) $(CUDACFLAGS) -std=c++17
+
+$(SOLVERLOOP)/obj/computeElasticInhom.o: $(SOLVERLOOP)/computeElasticInhom.cu $(SOLVERLOOP)/computeElasticInhom.cuh $(SOLVERLOOP)/inhom_math.hpp $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
+	$(NVCC) -DENABLE_CUFFTMP=$(ENABLE_CUFFTMP) -dc $(SOLVERLOOP)/computeElasticInhom.cu -o $(SOLVERLOOP)/obj/computeElasticInhom.o $(INCFLAGS) $(NVCCFLAGS) $(CUDALDFLAGS) $(CUDACFLAGS) -std=c++17
 
 $(SOLVERLOOP)/obj/updateComposition.o: $(SOLVERLOOP)/updateComposition.cu $(SOLVERLOOP)/updateComposition.cuh $(TDBS)/Thermo.cu $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
 	$(NVCC) -dc $(SOLVERLOOP)/updateComposition.cu -o $(SOLVERLOOP)/obj/updateComposition.o $(INCFLAGS) $(NVCCFLAGS) $(CUDALDFLAGS) $(CUDACFLAGS)

@@ -187,8 +187,8 @@ void function_F_04_init_propertymatrices(domainInfo *simDomain, controls *simCon
 
         for (k = 0; k < simDomain->numComponents-1; k++)
         {
-            acc_ES[a][k]     = (gsl_interp_accel**)malloc((simDomain->numComponents-1)*sizeof(gsl_interp_accel*));
-            spline_ES[a][k]  = (gsl_spline**)malloc((simDomain->numComponents-1)*sizeof(gsl_spline*));
+            acc_ES[a][k]     = (gsl_interp_accel**)malloc(2*sizeof(gsl_interp_accel*));
+            spline_ES[a][k]  = (gsl_spline**)malloc(2*sizeof(gsl_spline*));
 
             for (i = 0; i < 2; i++)
             {
@@ -241,6 +241,8 @@ void function_F_04_init_propertymatrices(domainInfo *simDomain, controls *simCon
         {
             for (i = 0; i < simDomain->numComponents-1; i++)
             {
+                // Each diffusion-potential component has its own cross terms.
+                sum_c = 0.0;
                 for (k = 0; k < simDomain->numComponents-1; k++)
                 {
                     c_liq[k] = gsl_spline_eval(spline_ES[simDomain->thermo_phase_host[a]][k][1], simParams->T, acc_ES[simDomain->thermo_phase_host[a]][k][1]);

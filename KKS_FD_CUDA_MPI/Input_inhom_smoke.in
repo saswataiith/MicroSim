@@ -1,0 +1,77 @@
+# Synthetic integration smoke case only; not WC material parameters.
+##Geometrical dimensions of the simulation domain
+DIMENSION = 3;
+MESH_X = 16;
+MESH_Y = 16;
+MESH_Z = 16;
+##Discretization, space and time
+DELTA_X = 1e-8;
+DELTA_Y = 1e-8;
+DELTA_Z = 1e-8;
+DELTA_t = 1e-11;
+##Number of phases and composition
+NUMPHASES = 2;
+NUMCOMPONENTS = 2;
+#Running and saving information
+NTIMESTEPS = 3;
+NSMOOTH = 0;
+SAVET = 1;
+RESTART = 0;
+STARTTIME = 0;
+numworkers = 1;
+## Component and Phase names
+COMPONENTS = {Al,Zn};
+PHASES = {alpha,liquid};
+##Material properties
+GAMMA = {0.1};
+R = 8.314;
+V = 10e-6;
+DIFFUSIVITY = {1,0,0};
+DIFFUSIVITY = {1,1,1e-9};
+EIGEN_STRAIN = {0,0.005, 0.01, 0.01, 0.0, 0.0, 0.0};
+EIGEN_STRAIN = {1,0,0,0,0,0,0};
+VOIGT_ISOTROPIC = {0,4.5e11,1.5e11,1.2e11};
+VOIGT_ISOTROPIC = {1,3e11,1e11,8e10};
+##Boundary conditions
+BOUNDARY = {phi,3,3,3,3,0,0};
+BOUNDARY = {mu,3,3,3,3,0,0};
+BOUNDARY = {c,3,3,3,3,0,0};
+BOUNDARY = {T,3,3,3,3,0,0};
+BOUNDARY_VALUE = {phi,0,0,0,0,0,0};
+BOUNDARY_VALUE = {mu,0,0,0,0,0,0};
+BOUNDARY_VALUE = {c,0,0,0,0,0,0};
+BOUNDARY_VALUE = {T,0,0,0,0,0,0};
+##Model-specific parameters: KKS FFT GPU
+GRAIN_GROWTH = 0;
+ELASTICITY = 1;
+# Inhomogeneous elasticity solver (requires ELASTICITY = 1 and 3-D domain).
+# Exactly one phase must have non-zero EIGEN_STRAIN (the precipitate).
+ELASTICITY_INHOM = 1;
+INHOM_TOLERANCE = 1e-13;
+INHOM_MAX_ITERATIONS = 500;
+INHOM_NORM = 0;
+INHOM_STRICT = 1;
+APPLIED_STRESS = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+WRITEFORMAT = ASCII;
+TRACK_PROGRESS = 1;
+Function_anisotropy = 1;
+dab = {0.01};
+Tau = {0.28};
+Gamma_abc = {0};
+epsilon = 8e-8;
+Equilibrium_temperature = 870;
+T = 857;
+Function_F = 4;
+num_thermo_phases = 2;
+tdbfname = alzn_mey.tdb;
+tdb_phases = {FCC_A1,LIQUID};
+phase_map = {FCC_A1,LIQUID};
+ceq = {0,0,0.926};
+ceq = {0,1,0.817};
+ceq = {1,0,0.817};
+ceq = {1,1,0.817};
+cfill = {0,0,0.926};
+cfill = {0,1,0.817};
+cfill = {1,0,0.817};
+cfill = {1,1,0.817};
+Rotation_matrix = {0,1,0, 0, 45};

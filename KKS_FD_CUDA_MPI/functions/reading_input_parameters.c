@@ -33,6 +33,14 @@ int readInput_MPI(domainInfo *simDomain, controls *simControls,
     simControls->ANISOTROPY = 0;
     simControls->ANISOTROPY_GRADIENT = 0;
     simControls->ELASTICITY = 0;
+    simControls->ELASTICITY_INHOM = 0;
+    simControls->inhomTol = 1e-9;
+    simControls->inhomMaxIter = 50;
+    simControls->inhomNorm = 0;
+    simControls->inhomStrict = 1;
+    simParams->sigma_applied.xx = 0.0; simParams->sigma_applied.yy = 0.0;
+    simParams->sigma_applied.zz = 0.0; simParams->sigma_applied.yz = 0.0;
+    simParams->sigma_applied.xz = 0.0; simParams->sigma_applied.xy = 0.0;
 
     while (fgets(tempbuff,1000,fr))
     {
@@ -483,6 +491,48 @@ int readInput_MPI(domainInfo *simDomain, controls *simControls,
             {
                 simControls->ELASTICITY = atoi(tmpstr2);
                 fprintf(fp, "ELASTICITY = %d\n", simControls->ELASTICITY);
+            }
+            else if ((strcmp(tmpstr1, "ELASTICITY_INHOM") == 0))
+            {
+                simControls->ELASTICITY_INHOM = atoi(tmpstr2);
+                fprintf(fp, "ELASTICITY_INHOM = %d\n", simControls->ELASTICITY_INHOM);
+            }
+            else if ((strcmp(tmpstr1, "INHOM_TOLERANCE") == 0))
+            {
+                simControls->inhomTol = atof(tmpstr2);
+                fprintf(fp, "INHOM_TOLERANCE = %le\n", simControls->inhomTol);
+            }
+            else if ((strcmp(tmpstr1, "INHOM_MAX_ITERATIONS") == 0))
+            {
+                simControls->inhomMaxIter = atol(tmpstr2);
+                fprintf(fp, "INHOM_MAX_ITERATIONS = %ld\n", simControls->inhomMaxIter);
+            }
+            else if ((strcmp(tmpstr1, "INHOM_NORM") == 0))
+            {
+                simControls->inhomNorm = atoi(tmpstr2);
+                fprintf(fp, "INHOM_NORM = %d\n", simControls->inhomNorm);
+            }
+            else if ((strcmp(tmpstr1, "INHOM_STRICT") == 0))
+            {
+                simControls->inhomStrict = atoi(tmpstr2);
+                fprintf(fp, "INHOM_STRICT = %d\n", simControls->inhomStrict);
+            }
+            else if ((strcmp(tmpstr1, "APPLIED_STRESS") == 0))
+            {
+                // {s_xx, s_yy, s_zz, s_yz, s_xz, s_xy}
+                int stress_fields = sscanf(tmpstr2, "{%le,%le,%le,%le,%le,%le}",
+                       &simParams->sigma_applied.xx, &simParams->sigma_applied.yy,
+                       &simParams->sigma_applied.zz, &simParams->sigma_applied.yz,
+                       &simParams->sigma_applied.xz, &simParams->sigma_applied.xy);
+                if (stress_fields != 6)
+                {
+                    fprintf(stderr, "APPLIED_STRESS requires six tensor components.\n");
+                    fclose(fr); fclose(fp); return 1;
+                }
+                fprintf(fp, "APPLIED_STRESS = {%le, %le, %le, %le, %le, %le}\n",
+                        simParams->sigma_applied.xx, simParams->sigma_applied.yy,
+                        simParams->sigma_applied.zz, simParams->sigma_applied.yz,
+                        simParams->sigma_applied.xz, simParams->sigma_applied.xy);
             }
             else if ((strcmp(tmpstr1, "EIGEN_STRAIN") == 0) && (simDomain->numPhases > 0))
             {

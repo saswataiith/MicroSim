@@ -57,3 +57,20 @@ If you find any bugs or need any help in running the script, please reach me thr
 
 **_Arun C_**
 **_mm23d002@smail.iitm.ac.in_**
+
+## v6 branch corrections
+
+The local inhomogeneous development branch validates a common temperature grid
+and writes per-solid-phase `Composition_PHASE.csv` files in the F04 reader's
+component order, plus the combined table. Hessians are evaluated at each phase's
+tie-line mole composition, even if the nominal alloy is entered by mass. The
+output directory is `tdbs_encrypted_Material` and can be reused. Calculation
+caches are retained. `export_manifest.json` is marked complete only after the
+script finishes; do not use partial files from a failed export.
+
+Run helper and mocked-interface tests with `python tests/run_branch_checks.py`
+from the repository root. A licensed Thermo-Calc integration run remains required.
+This exporter does not yet emit mobility matrices. A line compound such as WC
+needs an appropriate thermodynamic treatment; do not force a solution-phase
+Hessian calculation at an inadmissible composition or treat a singular matrix as
+a zero curvature. These scripts do not implement that physical model.

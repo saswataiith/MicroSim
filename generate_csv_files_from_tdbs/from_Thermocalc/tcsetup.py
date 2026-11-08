@@ -15,11 +15,17 @@ class setup:
         self.start = start
         self.comp_choice = comp_choice
 
-    def _set_multiple_conditions(self):
-        c = "W(" if self.comp_choice == 'mass' else "X("
+    def _set_multiple_conditions(self, composition=None, unit=None):
+        values = self.composition if composition is None else composition
+        basis = self.comp_choice if unit is None else unit
+        if basis not in ('mass', 'mole'):
+            raise ValueError("Composition_unit must be 'mass' or 'mole'")
+        if len(values) != len(self.solutes):
+            raise ValueError('One composition value is required for every solute')
+        c = "W(" if basis == 'mass' else "X("
         temp=["s-c"]
         for i in range(len(self.solutes)):
-            temp.append(c+self.solutes[i]+")="+str(self.composition[i]))
+            temp.append(c+self.solutes[i]+")="+str(values[i]))
         return (' '.join(temp))
 
     def Database_selection(self):
@@ -55,8 +61,10 @@ class setup:
                 .with_single_equilibrium_calculation())
         return Hessian
 
-    def Hessian_calculation(self, Hessian_setup, temperature):
-        condition = setup._set_multiple_conditions(self)
+    def Hessian_calculation(self, Hessian_setup, temperature, phase_mole_fractions):
+        # Curvatures must refer to this phase's tie-line composition, even when
+        # the nominal alloy was specified on a mass-fraction basis.
+        condition = self._set_multiple_conditions(phase_mole_fractions, 'mole')
         l=(Hessian_setup
             .set_condition("T", temperature)
             .run_poly_command(condition)
