@@ -66,6 +66,13 @@ class Tables(unittest.TestCase):
 
 
 class HostSource(unittest.TestCase):
+    def test_rectangular_2d_stencil(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exe=Path(tmp)/'stencil'
+            subprocess.run([os.environ.get('CXX','c++'),'-std=c++17','-O1','-g',
+                            '-fsanitize=address,undefined',str(ROOT/'tests/test_2d_stencil.cpp'),'-o',str(exe)],check=True,capture_output=True)
+            subprocess.run([str(exe)],check=True,capture_output=True)
+
     def test_actual_bridge_and_both_chemical_branches(self):
         source=(ROOT/'KKS_FD_CUDA_MPI/solverloop/computeElasticInhom.cu').read_text()
         chemistry=(ROOT/'KKS_FD_CUDA_MPI/solverloop/computeDrivingForce.cu').read_text()
@@ -83,25 +90,27 @@ void (*free_energy_tdb_dev[2])(double,double*,double*)={zeroEnergy,zeroEnergy};
 '''
         bodies='\n'.join([function(interpolation,'double calcInterp5thDiff('),
             function(source,'void inh_bridge_dfeldphi('),
-            function(source,'void inh_eigsts_avg2('),
+            function(source,'void inh_eigsts_avg_diag('),
             function(chemistry,'void __computeDrivingForce__('),
             function(chemistry,'void __computeDrivingForce_02__(')])
         main=r'''
 double h(double p){return p*p*p*(10-15*p+6*p*p);}
 int main(){double x[27]={},y[27]={},f0[27]={},f1[27]={},cp0[27]={},cp1[27]={},u[27]={};double* phi[]={x,y};double* force[]={f0,f1};double* pc[]={cp0,cp1};double* mu[]={u};double z[16]={};long map[]={0,1};double raw[]={2.7};
-for(int branch=0;branch<2;branch++)for(int precip=0;precip<2;precip++)for(double v:{.2,.5,.8}){
-x[13]=precip==0?v:1-v;y[13]=1-x[13];f0[13]=f1[13]=0;
-inh_bridge_dfeldphi(phi,force,raw,precip,2,9,3,3,3,3);
-if(branch==0)__computeDrivingForce__(phi,nullptr,force,pc,z,z,z,1,z,z,z,1,2,2,3,3,3,3,9,3,1);
-else __computeDrivingForce_02__(phi,nullptr,force,pc,mu,1,z,z,z,1,1000,map,2,2,3,3,3,3,9,3,1);
+for(int dim: {2,3})for(int branch=0;branch<2;branch++)for(int precip=0;precip<2;precip++)for(double v:{.2,.5,.8}){
+int cell=dim==2?4:13,xstep=dim==2?3:9,ystep=dim==2?1:3,nz=dim==2?1:3;
+threadIdx={1,1,dim==2?0:1};
+x[cell]=precip==0?v:1-v;y[cell]=1-x[cell];f0[cell]=f1[cell]=0;
+inh_bridge_dfeldphi(phi,force,raw,precip,2,xstep,ystep,3,3,nz);
+if(branch==0)__computeDrivingForce__(phi,nullptr,force,pc,z,z,z,1,z,z,z,1,2,2,dim,3,3,nz,xstep,ystep,1);
+else __computeDrivingForce_02__(phi,nullptr,force,pc,mu,1,z,z,z,1,1000,map,2,2,dim,3,3,nz,xstep,ystep,1);
 double fd=raw[0]*(h(v+1e-6)-h(v-1e-6))/(2e-6);
 // MicroSim's binary constrained derivative gives opposite phase forces.
 // updatePhi projects the pair; the half difference is the scalar derivative.
-if(fabs(force[precip][13]-fd)>1e-8||fabs(force[1-precip][13]+fd)>1e-8)return 1;
+if(fabs(force[precip][cell]-fd)>1e-8||fabs(force[1-precip][cell]+fd)>1e-8)return 1;
 }
-threadIdx={0,0,0};double e1[1],e2[1],hp[]={.5},ch[]={300,100,80},ct[]={0,0,0};
-inh_eigsts_avg2(e1,e2,hp,ch,ct,.005,2,1);
-if(fabs(e1[0]-1.75)>1e-12||fabs(e2[0]-2.25)>1e-12)return 2;
+threadIdx={0,0,0};double e1[1],e2[1],e3[1],hp[]={.5},ch[]={300,100,80},ct[]={0,0,0};
+inh_eigsts_avg_diag(e1,e2,e3,hp,ch,ct,.005,2,2,1);
+if(fabs(e1[0]-1.75)>1e-12||fabs(e2[0]-2.25)>1e-12||fabs(e3[0]-2.25)>1e-12)return 2;
 return 0;}
 '''
         with tempfile.TemporaryDirectory() as tmp:

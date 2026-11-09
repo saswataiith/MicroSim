@@ -13,18 +13,41 @@ checks, original CUDA local-kernel comparisons, conservation and restart.
 `../tests/run_branch_checks.py` checks actual extracted CUDA host/local routines,
 including both chemical coupling branches, phase permutations, tie-line equality
 for 2/3/5 components and AddressSanitizer. These checks are not GPU execution.
-The new CUDA integration still requires an NVIDIA build, device-link, memory
-checks, independent mechanical residual checks and coupled reference comparisons.
+Local Linux validation now includes a CUDA 12.9 NVIDIA build/device link,
+single-GPU coupled runs, and independent dense mechanical/energy-derivative
+checks for both 2D models and all loading choices. Whole-program sanitizer
+and genuine multi-GPU hardware validation remain pending; an extracted
+reference-kernel harness passed device memcheck. See the audit evidence.
 
 ## CUDA scope
 
 The new path requires `ENABLE_CUFFTMP=1`, `ELASTICITY=1`, `ELASTICITY_INHOM=1`,
-a three-dimensional periodic domain, padding one, and exactly two elastic phases.
+a periodic domain, padding one, and exactly two elastic phases.
+The local 2D extension supports `DIMENSION=2`, `MESH_Z=1`, and
+`INHOM_2D_MODE=1` (generalized plane strain) or `2` (intrinsic 2D).
+Under stress-free loading, model 1 solves uniform Ezz so that mean sigma_zz=0,
+retains full 3D normal constitutive coupling, and fixes xz/yz strains to zero.
+Model 2 requires
+zero zz eigenstrain and has no out-of-plane energy or mean Ezz unknown.
+Neither option imposes local plane stress. Loading is independent:
+`INHOM_LOADING=STRESS_FREE` evaluates E from zero mean stress;
+`INHOM_LOADING=CONSTRAINED` holds `HOMOGENEOUS_STRAIN={xx,yy,zz,yz,xz,xy}`
+fixed (tensor shear); `INHOM_LOADING=APPLIED_STRESS` evaluates E for
+`APPLIED_STRESS`. The latter is the backward-compatible default.
+Intrinsic 2D excludes zz, and both 2D models exclude xz/yz. Mixed mean
+loading is currently available through the CPU engine/C API, not this CUDA input.
+The 3D constitutive route remains unchanged.
 One phase has zero eigenstrain; the other must have finite diagonal eigenstrain
-with nonzero xx and equal yy and zz. Unsupported shear or unequal yy/zz is
+with nonzero xx; 3D requires equal yy and zz. Unsupported shear or unequal yy/zz is
 rejected. Stiffness is aligned cubic and must be positive definite. The variable
 loading is prescribed mean stress. General eigenstrains, more elastic phases,
-independent equilibrium-residual acceptance and 2D are further development.
+independent equilibrium-residual stopping criteria remain further development.
+
+Small single-GPU 2D F1 tests pass against an independent dense variational
+reference, including applied normal/shear stress. Local kernels from the
+3 November 2026 Atchyut archive were compared separately; its `Pstrain`
+numbering and mean-loading conditions differ from these modes. Full legacy
+trajectory equivalence, multi-GPU runs and production validation are not claimed.
 
 `INHOM_STRICT=1` is required. A cap, invalid residual or backend failure aborts
 before returning forces. The context records successful iteration count and
@@ -71,3 +94,18 @@ mean-stress/equilibrium residuals. Multiple GPUs are required for multi-GPU chec
 The existing homogeneous Bpq path remains selected when `ELASTICITY_INHOM=0`.
 Its GPU regression is still required; source routing alone does not establish
 numerical equivalence.
+
+
+## Reproducible 2D Function F1 verification
+
+See `examples/2d_f1/README.md`. `tests/run_2d_f1_validation.py` independently
+checks compatible-strain equilibrium, phase and composition timesteps, KKS
+equalities, mean loading, energy derivatives, conservation, and temporal
+refinement. It uses smooth known initial fields, unequal parabolic curvatures,
+non-proportional elastic constants, unequal spacings and odd/even grids.
+
+This branch corrects the 2D isotropic rectangular-grid stencil (zero row sum
+and quadratic moments), the F1 anti-trapping positive-x composition sampling
+(shared face flux), and roundoff-level gradient normalization in 2D. Explicit
+`ANTI_TRAPPING=0` is respected; the historical enabled default remains 1.
+ASCII fields preserve 17-digit precision for restart and verification.

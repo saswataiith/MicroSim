@@ -27,6 +27,7 @@ int readInput_MPI(domainInfo *simDomain, controls *simControls,
     simParams->alpha = 2.94;
     simParams->ISOTHERMAL = 1;
     simControls->multiphase = 1;
+    simControls->antiTrapping = 1; // preserve the historical enabled default
     simControls->restart = 0;
     simControls->writeHDF5 = 0;
     simControls->FUNCTION_ANISOTROPY = 0;
@@ -38,13 +39,18 @@ int readInput_MPI(domainInfo *simDomain, controls *simControls,
     simControls->inhomMaxIter = 50;
     simControls->inhomNorm = 0;
     simControls->inhomStrict = 1;
+    simControls->inhom2DMode = 1;
+    simControls->inhomLoading = 2; // backward-compatible prescribed-stress input
+    simControls->inhomDiagnostics = 0;
+    memset(&simParams->homogeneous_strain, 0, sizeof(simParams->homogeneous_strain));
     simParams->sigma_applied.xx = 0.0; simParams->sigma_applied.yy = 0.0;
     simParams->sigma_applied.zz = 0.0; simParams->sigma_applied.yz = 0.0;
     simParams->sigma_applied.xz = 0.0; simParams->sigma_applied.xy = 0.0;
 
     while (fgets(tempbuff,1000,fr))
     {
-        sscanf(tempbuff,"%100s = %100[^;];", tmpstr1, tmpstr2);
+        // Blank/comment-only or malformed lines must not reuse the previous key/value.
+        if (sscanf(tempbuff,"%100s = %100[^;];", tmpstr1, tmpstr2) != 2) continue;
         if (tmpstr1[0] != '#')
         {
             if (strcmp(tmpstr1, "MESH_X") == 0)
@@ -512,10 +518,61 @@ int readInput_MPI(domainInfo *simDomain, controls *simControls,
                 simControls->inhomNorm = atoi(tmpstr2);
                 fprintf(fp, "INHOM_NORM = %d\n", simControls->inhomNorm);
             }
+            else if (strcmp(tmpstr1, "INHOM_DIAGNOSTICS") == 0)
+            {
+                simControls->inhomDiagnostics = atoi(tmpstr2);
+                if (simControls->inhomDiagnostics != 0 && simControls->inhomDiagnostics != 1)
+                {
+                    fprintf(stderr, "INHOM_DIAGNOSTICS must be 0 or 1.\n");
+                    fclose(fr); fclose(fp); return 1;
+                }
+            }
+            else if (strcmp(tmpstr1, "INHOM_2D_MODE") == 0)
+            {
+                char *end;
+                long mode = strtol(tmpstr2, &end, 10);
+                while (*end == ' ' || *end == '\t') ++end;
+                if (*end != '\0' || (mode != 1 && mode != 2))
+                {
+                    fprintf(stderr, "INHOM_2D_MODE must be 1 (generalized plane strain) or 2 (intrinsic 2D).\n");
+                    fclose(fr); fclose(fp); return 1;
+                }
+                simControls->inhom2DMode = (int)mode;
+                fprintf(fp, "INHOM_2D_MODE = %d\n", simControls->inhom2DMode);
+            }
             else if ((strcmp(tmpstr1, "INHOM_STRICT") == 0))
             {
                 simControls->inhomStrict = atoi(tmpstr2);
                 fprintf(fp, "INHOM_STRICT = %d\n", simControls->inhomStrict);
+            }
+            else if (strcmp(tmpstr1,"ANTI_TRAPPING")==0)
+            {
+                char *end;long value=strtol(tmpstr2,&end,10);
+                while(*end==' ' || *end=='\t')++end;
+                if(*end || (value!=0 && value!=1)){fprintf(stderr,"ANTI_TRAPPING must be 0 or 1.\n");fclose(fr);fclose(fp);return 1;}
+                simControls->antiTrapping=(int)value;
+                fprintf(fp,"ANTI_TRAPPING = %d\n",simControls->antiTrapping);
+            }
+            else if (strcmp(tmpstr1, "INHOM_LOADING") == 0)
+            {
+                char word[101], extra;
+                if (sscanf(tmpstr2, "%100s %c", word, &extra) != 1) {
+                    fprintf(stderr, "Invalid INHOM_LOADING.\n"); fclose(fr); fclose(fp); return 1;
+                }
+                if (strcmp(word,"STRESS_FREE")==0) simControls->inhomLoading=0;
+                else if (strcmp(word,"CONSTRAINED")==0) simControls->inhomLoading=1;
+                else if (strcmp(word,"APPLIED_STRESS")==0) simControls->inhomLoading=2;
+                else {fprintf(stderr,"INHOM_LOADING must be STRESS_FREE, CONSTRAINED or APPLIED_STRESS.\n"); fclose(fr); fclose(fp); return 1;}
+                fprintf(fp,"INHOM_LOADING = %s\n",word);
+            }
+            else if (strcmp(tmpstr1,"HOMOGENEOUS_STRAIN")==0)
+            {
+                int fields=sscanf(tmpstr2,"{%le,%le,%le,%le,%le,%le}",
+                    &simParams->homogeneous_strain.xx,&simParams->homogeneous_strain.yy,
+                    &simParams->homogeneous_strain.zz,&simParams->homogeneous_strain.yz,
+                    &simParams->homogeneous_strain.xz,&simParams->homogeneous_strain.xy);
+                if(fields!=6){fprintf(stderr,"HOMOGENEOUS_STRAIN requires six tensor components.\n");fclose(fr);fclose(fp);return 1;}
+                fprintf(fp,"HOMOGENEOUS_STRAIN = %s\n",tmpstr2);
             }
             else if ((strcmp(tmpstr1, "APPLIED_STRESS") == 0))
             {

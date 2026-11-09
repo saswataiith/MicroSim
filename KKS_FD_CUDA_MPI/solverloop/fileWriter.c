@@ -50,7 +50,7 @@ void writeVTK_ASCII(double *phi, double *comp, double *mu,
             {
                 for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
                 {
-                    fprintf(fp, "%le\n", phi[a*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
+                    fprintf(fp, "%.17e\n", phi[a*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
                 }
             }
         }
@@ -69,7 +69,7 @@ void writeVTK_ASCII(double *phi, double *comp, double *mu,
             {
                 for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
                 {
-                    fprintf(fp, "%le\n", comp[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
+                    fprintf(fp, "%.17e\n", comp[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
                 }
             }
         }
@@ -89,7 +89,7 @@ void writeVTK_ASCII(double *phi, double *comp, double *mu,
                 {
                     for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
                     {
-                        fprintf(fp, "%le\n", mu[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
+                        fprintf(fp, "%.17e\n", mu[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
                     }
                 }
             }

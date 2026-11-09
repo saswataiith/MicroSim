@@ -1,0 +1,7 @@
+# Generated executable, fields and diagnostic output
+/microsim_kks_fd_cuda_mpi
+/DATA/
+*.bd
+*.in.out
+/elastic_rank*_step*.csv
+/f1_parameters.csv

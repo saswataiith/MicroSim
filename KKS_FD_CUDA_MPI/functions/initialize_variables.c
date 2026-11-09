@@ -211,7 +211,7 @@ void moveParamsToGPU(domainInfo *simDomain, controls *simControls, simParameters
         }
     }
 
-    simControls->antiTrapping = 1;
+    // Respect ANTI_TRAPPING from input instead of overriding it here.
 
     // for (int i = 0; i < simDomain->numPhases; i++)
     // {
@@ -243,6 +243,20 @@ void moveParamsToGPU(domainInfo *simDomain, controls *simControls, simParameters
 
     // Calculate phase-field mobility
     calculateTau(simDomain, simControls, simParams);
+    if(rank==0 && simControls->inhomDiagnostics && simControls->FUNCTION_F==1 &&
+       simDomain->numPhases==2 && simDomain->numComponents==2) {
+        FILE *verification=fopen("f1_parameters.csv","w");
+        if(!verification) MPI_Abort(comm,EXIT_FAILURE);
+        fprintf(verification,"A0,A1,B0,B1,C0,C1,M0,M1,kappa,theta,relax,V,antitrapping\n");
+        fprintf(verification,"%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%d\n",
+            simParams->F0_A_host[0][0][0],simParams->F0_A_host[1][0][0],
+            simParams->F0_B_host[0][0],simParams->F0_B_host[1][0],simParams->F0_C_host[0],simParams->F0_C_host[1],
+            simParams->mobility_host[0][0][0],simParams->mobility_host[1][0][0],
+            simParams->kappaPhi_host[0][1],simParams->theta_ij_host[0][1],simParams->relax_coeff_host[0][1],
+            simParams->molarVolume,simControls->antiTrapping);
+        fclose(verification);
+    }
+
 
     // Move to GPU
     cudaMemcpy(simDomain->thermo_phase_dev, simDomain->thermo_phase_host, sizeof(long)*simDomain->numPhases, cudaMemcpyHostToDevice);

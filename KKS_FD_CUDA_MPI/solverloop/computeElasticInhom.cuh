@@ -9,15 +9,16 @@
  * Physics: iterative Khachaturyan-type solver.  Local stiffness
  *   C(r) = Chom + Chet*(2*h(phi) - 1),
  *   Chom = (C_precip + C_matrix)/2,  Chet = (C_precip - C_matrix)/2,
- * eigenstrain eps0_ij = diag(e0, e0*aniso, e0*aniso) * h(phi),
+ * eigenstrain is diagonal; intrinsic 2D requires its zz component to be zero,
  * applied stress supported through the homogeneous-strain balance
  *   Ebar = inverse(<C>) ( sigma_appl + <sig*> - <dsig> ).
  *
  * Current scope (deliberate, matching the source solver):
- *   - 3-D only (DIMENSION == 3)
+ *   - 3-D or 2-D: generalized plane strain / intrinsic 2-D (MESH_Z == 1)
  *   - exactly one precipitate phase with non-zero EIGEN_STRAIN and one
  *     matrix phase with zero EIGEN_STRAIN (NUMPHASES == 2)
- *   - diagonal eigenstrain: xx and yy(=zz) components used; unsupported shear rejected
+ *   - diagonal eigenstrain; 3D retains yy==zz, 2D permits separate zz
+ *     (generalized plane strain retains zz eigenstrain energy; intrinsic 2D requires zz=0)
  *   - cubic stiffness from VOIGT_ISOTROPIC {C11, C12, C44} per phase
  *
  * Reductions: CUB (intra-GPU) + NCCL (inter-GPU) + cuBLAS (L2 norm),
@@ -74,6 +75,9 @@ typedef struct InhomElasticCtx
 
     /* host-side parameters */
     double epszero;                       /* eps0 = eigen_strain[precip].xx */
+    double misfit_z;                      /* eigen_strain[precip].zz / .xx */
+    int loading;                         /* 0 stress-free, 1 constrained, 2 applied stress */
+    int model2d;                         /* 0: full 3D, 1: generalized plane strain, 2: intrinsic */
     double misfit_aniso;                  /* eigen_strain[precip].yy / .xx  */
     double Tol;                           /* convergence tolerance          */
     long   nelast;                        /* max solver iterations          */

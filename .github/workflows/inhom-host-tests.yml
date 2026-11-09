@@ -1,7 +1,7 @@
 name: Inhomogeneous elasticity host checks
 on:
   push:
-    branches: [MicroScim-CUDA-InhomElast]
+    branches: [MicroScim-CUDA-InhomElast, MicroSim-CUDA-2D-Inhom-F1]
   pull_request:
   workflow_dispatch:
 permissions:

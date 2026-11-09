@@ -46,5 +46,35 @@ INHOM_HD static inline void inhom_green_inverse(double *out, const double *k, co
     out[4]=inv*(v[5]*v[3]-v[4]*v[1]);
     out[5]=-inv*(v[5]*v[2]-v[4]*v[3]);
 }
+// In-plane compliance uses tensor shear: epsilon_xy = sigma_xy/(2*C44).
+// model2d=1: generalized plane strain (free mean Ezz); 2: intrinsic 2D.
+INHOM_HD static inline void inhom_average_compliance(double *s, const double *c, int model2d)
+{
+    if (model2d == 2) {
+        const double den = (c[0]-c[1])*(c[0]+c[1]);
+        s[0] = c[0]/den;
+        s[1] = -c[1]/den;
+    } else {
+        const double den = (c[0]-c[1])*(c[0]+2*c[1]);
+        s[0] = (c[0]+c[1])/den;
+        s[1] = -c[1]/den;
+    }
+    s[2] = 1.0/c[2];
+}
+
+// Derivative of 1/2 (epsilon-h*eigen):C(h):(epsilon-h*eigen), at fixed epsilon.
+// e stores elastic tensor strain, in xx yy zz yz xz xy order.
+INHOM_HD static inline double inhom_elastic_partial(const double *e, const double *eigen,
+                                                    const double *ch, const double *dc, double h)
+{
+    const double c11=ch[0]+dc[0]*(2*h-1), c12=ch[1]+dc[1]*(2*h-1);
+    const double stiffness_part = dc[0]*(e[0]*e[0]+e[1]*e[1]+e[2]*e[2])
+        +2*dc[1]*(e[0]*e[1]+e[0]*e[2]+e[1]*e[2])
+        +4*dc[2]*(e[3]*e[3]+e[4]*e[4]+e[5]*e[5]);
+    return stiffness_part
+        -(c11*e[0]+c12*(e[1]+e[2]))*eigen[0]
+        -(c11*e[1]+c12*(e[0]+e[2]))*eigen[1]
+        -(c11*e[2]+c12*(e[0]+e[1]))*eigen[2];
+}
 #undef INHOM_HD
 #endif

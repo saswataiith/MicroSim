@@ -153,10 +153,10 @@ $(SOLVERLOOP)/obj/computeElastic.o: $(SOLVERLOOP)/computeElastic.cu $(SOLVERLOOP
 $(SOLVERLOOP)/obj/computeElasticInhom.o: $(SOLVERLOOP)/computeElasticInhom.cu $(SOLVERLOOP)/computeElasticInhom.cuh $(SOLVERLOOP)/inhom_math.hpp $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
 	$(NVCC) -DENABLE_CUFFTMP=$(ENABLE_CUFFTMP) -dc $(SOLVERLOOP)/computeElasticInhom.cu -o $(SOLVERLOOP)/obj/computeElasticInhom.o $(INCFLAGS) $(NVCCFLAGS) $(CUDALDFLAGS) $(CUDACFLAGS) -std=c++17
 
-$(SOLVERLOOP)/obj/updateComposition.o: $(SOLVERLOOP)/updateComposition.cu $(SOLVERLOOP)/updateComposition.cuh $(TDBS)/Thermo.cu $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
+$(SOLVERLOOP)/obj/updateComposition.o: $(FUNCTIONS)/fdStencil.h $(SOLVERLOOP)/updateComposition.cu $(SOLVERLOOP)/updateComposition.cuh $(TDBS)/Thermo.cu $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
 	$(NVCC) -dc $(SOLVERLOOP)/updateComposition.cu -o $(SOLVERLOOP)/obj/updateComposition.o $(INCFLAGS) $(NVCCFLAGS) $(CUDALDFLAGS) $(CUDACFLAGS)
 
-$(SOLVERLOOP)/obj/updatePhi.o: $(SOLVERLOOP)/updatePhi.cu $(SOLVERLOOP)/updatePhi.cuh $(TDBS)/Thermo.cu $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
+$(SOLVERLOOP)/obj/updatePhi.o: $(FUNCTIONS)/fdStencil.h $(SOLVERLOOP)/updatePhi.cu $(SOLVERLOOP)/updatePhi.cuh $(TDBS)/Thermo.cu $(FUNCTIONS)/structures.h $(FUNCTIONS)/defines.h Makefile
 	$(NVCC) -dc $(SOLVERLOOP)/updatePhi.cu -o $(SOLVERLOOP)/obj/updatePhi.o $(INCFLAGS) $(NVCCFLAGS) $(CUDALDFLAGS) $(CUDACFLAGS)
 
 link: $(device_objects) $(FUNCTIONS)/defines.h

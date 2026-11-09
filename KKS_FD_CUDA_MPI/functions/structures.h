@@ -106,6 +106,9 @@ typedef struct controls
     double inhomTol;           // convergence tolerance on |u_new - u_old|
     long   inhomMaxIter;       // max solver iterations per time step
     int    inhomNorm;          // 0: L2 (cuBLAS+MPI), 1: max (CUB+NCCL)
+    int    inhomLoading;        // 0: stress-free, 1: constrained, 2: applied mean stress
+    int    inhomDiagnostics;   // optional CSV fields for independent validation
+    int    inhom2DMode;        // 1: generalized plane strain, 2: intrinsic 2D (DIMENSION=2)
     int    inhomStrict;        // 1: abort if not converged within inhomMaxIter
 } controls;
 
@@ -178,6 +181,7 @@ typedef struct simParameters
     Stiffness_cubic  *Stiffness_c;
     // Applied stress (Voigt xx, yy, zz, yz, xz, xy) for the inhomogeneous solver
     symmetric_tensor sigma_applied;
+    symmetric_tensor homogeneous_strain; // prescribed total tensor strain
 } simParameters;
 
 /*
