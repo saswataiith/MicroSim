@@ -794,12 +794,6 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
     auto [uxF,  uxFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->ux);
     auto [uyF,  uyFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->uy);
     auto [uzF,  uzFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->uz);
-    auto [nxR,  nxRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->unewx);
-    auto [nyR,  nyRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->unewy);
-    auto [nzR,  nzRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->unewz);
-    auto [nxF,  nxFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewx);
-    auto [nyF,  nyFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewy);
-    auto [nzF,  nzFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewz);
 
     /* BoxIterator has no default constructor: build pair arrays directly */
     using BIPair = std::pair<BoxIterator<cufftDoubleComplex>, BoxIterator<cufftDoubleComplex>>;
@@ -910,6 +904,18 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
 
     while (converge)
     {
+        /* Fresh views follow the ping-pong descriptors. BoxIterator's box
+         * metadata is immutable, so rebinding is done by construction. */
+        auto [uxR, uxRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->ux);
+        auto [uyR, uyRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->uy);
+        auto [uzR, uzRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->uz);
+        auto [nxR, nxRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->unewx);
+        auto [nyR, nyRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->unewy);
+        auto [nzR, nzRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->unewz);
+        auto [nxF, nxFe] = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewx);
+        auto [nyF, nyFe] = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewy);
+        auto [nzF, nzFe] = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewz);
+
         /* tau (overwrites strain in str_v, real space) */
         inh_ts<<<nbR, 256, 0, stream>>>(sR(0), sRe(0), sR(1), sR(2), sR(3), sR(4), sR(5),
                                         ctx->hom_strain_v, ctx->hphisum,
@@ -992,8 +998,12 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
         if (!isfinite(disperror)) MPI_Abort(comm, EXIT_FAILURE);
         if (disperror < ctx->Tol) converge = 0;
 
-        /* u_old <- u_new */
-        inh_copy_new<<<nbR, 256, 0, stream>>>(nxR, nxRe, nyR, nzR, uxR, uyR, uzR);
+        /* The accepted iterate becomes persistent state without copying three
+         * complete complex volumes. Swap the descriptors, including the final
+         * iteration, so the next call warm-starts from the accepted iterate. */
+        std::swap(ctx->ux, ctx->unewx);
+        std::swap(ctx->uy, ctx->unewy);
+        std::swap(ctx->uz, ctx->unewz);
 
         iter++;
         if (iter >= ctx->nelast && converge)
@@ -1030,7 +1040,53 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
 
     // Opt-in validation output: raw h, total tensor strain and unchained dF/dh.
     // No diagnostics or host copies are performed in ordinary simulations.
-    if (simControls.inhomDiagnostics)
+    if (simControls.inhomDiagnostics == 2)
+    {
+        /* Bounded-memory physical-z plane export for large 3D volumes.
+         * The INPLACE descriptor is a compact [local_x][y][z] slab. */
+        const long nz = simDomain.MESH_Z;
+        long z = nz/2;
+        if (const char *text = std::getenv("MICROSIM_DIAGNOSTIC_Z_INDEX"))
+        {
+            char *end = nullptr;
+            z = std::strtol(text, &end, 10);
+            if (end == text || *end || z < 0 || z >= nz)
+            {
+                fprintf(stderr, "Invalid MICROSIM_DIAGNOSTIC_Z_INDEX for z extent %ld\n", nz);
+                MPI_Abort(comm, EXIT_FAILURE);
+            }
+        }
+        const size_t rows = (size_t)N/(size_t)nz;
+        std::vector<double> fields(8*rows);
+        double mean[6];
+        CUDA_CHECK(cudaMemcpy(mean, ctx->hom_strain_v, sizeof(mean), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy2D(fields.data(), sizeof(double), ctx->hphisum+z,
+                               nz*sizeof(double), sizeof(double), rows, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy2D(fields.data()+7*rows, sizeof(double), ctx->dfelas+z,
+                               nz*sizeof(double), sizeof(double), rows, cudaMemcpyDeviceToHost));
+        for (int v=0; v<6; ++v)
+        {
+            const cufftDoubleComplex *src =
+                (const cufftDoubleComplex*)ctx->str_v[v]->descriptor->data[0];
+            CUDA_CHECK(cudaMemcpy2D(fields.data()+(v+1)*rows, sizeof(double), src+z,
+                                   nz*sizeof(cufftDoubleComplex), sizeof(double), rows,
+                                   cudaMemcpyDeviceToHost));
+        }
+        char name[160];
+        snprintf(name, sizeof(name), "elastic_rank%d_step%ld_slice_z%ld.csv",
+                 ctx->rank, simControls.count, z);
+        FILE *fp = fopen(name, "w");
+        if (!fp) { perror(name); MPI_Abort(comm, EXIT_FAILURE); }
+        fprintf(fp, "h,exx,eyy,ezz,eyz,exz,exy,dfdh\n");
+        for (size_t i=0; i<rows; ++i)
+        {
+            fprintf(fp, "%.17g", fields[i]);
+            for (int v=0; v<6; ++v) fprintf(fp, ",%.17g", mean[v]+fields[(v+1)*rows+i]);
+            fprintf(fp, ",%.17g\n", fields[7*rows+i]);
+        }
+        if (fclose(fp)) { perror(name); MPI_Abort(comm, EXIT_FAILURE); }
+    }
+    else if (simControls.inhomDiagnostics)
     {
         std::vector<double> h(N), df(N);
         std::vector<cufftDoubleComplex> strain[6];

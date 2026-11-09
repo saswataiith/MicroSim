@@ -6,10 +6,11 @@
 
 double swap_bytes(double value)
 {
-    double  src_num = value;
-    int64_t tmp_num = htobe64(le64toh(*(int64_t*)&src_num));
-    double  dst_num = *(double*)&tmp_num;
-    return  dst_num;
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    bits = htobe64(le64toh(bits));
+    memcpy(&value, &bits, sizeof(value));
+    return value;
 }
 
 void writeVTK_ASCII(double *phi, double *comp, double *mu,
@@ -100,108 +101,56 @@ void writeVTK_ASCII(double *phi, double *comp, double *mu,
     fclose(fp);
 }
 
+/* A row is contiguous in the innermost physical axis, even with halos.
+ * Buffer endian conversion and transfer complete rows rather than one double. */
+static int vtk_write_binary_field(FILE *fp, const double *field,
+                                  subdomainInfo sd, double *row)
+{
+    const size_t nz = (size_t)(sd.zE_r - sd.zS_r);
+    for (long x = sd.xS_r; x < sd.xE_r; ++x)
+        for (long y = sd.yS_r; y < sd.yE_r; ++y)
+        {
+            const double *src = field + x*sd.xStep + y*sd.yStep + sd.zS_r;
+            if (IS_LITTLE_ENDIAN)
+                for (size_t z = 0; z < nz; ++z) row[z] = swap_bytes(src[z]);
+            if (fwrite(IS_LITTLE_ENDIAN ? row : src, sizeof(double), nz, fp) != nz)
+                return 0;
+        }
+    return fputc('\n', fp) != EOF;
+}
+
 void writeVTK_BINARY(double *phi, double *comp, double *mu,
                      domainInfo simDomain, subdomainInfo subdomain,
                      controls simControls, int rank, MPI_Comm comm,
                      char *argv[])
 {
-    FILE *fp;
-    char name[100];
-
-    long t = simControls.count;
-
-    long x, y, z;
-
-    long layer_size = subdomain.sizeX*subdomain.sizeY;
-
-    double value;
-
-    sprintf(name, "DATA/Processor_%d/%s_%ld.vtk", rank, argv[3], t);
-    fp = fopen(name, "w");
-
-    /*
-     * Metadata required for the reader to understand the data's topology and format
-     */
-    fprintf(fp, "# vtk DataFile Version 3.0\n");
-    fprintf(fp, "Microsim_fields\n");
-    fprintf(fp, "BINARY\n");
-    fprintf(fp, "DATASET STRUCTURED_POINTS\n");
+    char name[1000];
+    snprintf(name, sizeof(name), "DATA/Processor_%d/%s_%ld.vtk", rank, argv[3], simControls.count);
+    FILE *fp = fopen(name, "wb");
+    double *row = (double*)malloc(sizeof(double)*(size_t)subdomain.numZ);
+    if (!fp || !row) MPI_Abort(comm, EXIT_FAILURE);
+    fprintf(fp, "# vtk DataFile Version 3.0\nMicrosim_fields\nBINARY\nDATASET STRUCTURED_POINTS\n");
     fprintf(fp, "DIMENSIONS %ld %ld %ld\n", subdomain.numY, subdomain.numX, subdomain.numZ);
-    fprintf(fp, "ORIGIN 0 0 0\n");
-    fprintf(fp, "SPACING %le %le %le\n", simDomain.DELTA_Y, simDomain.DELTA_X, simDomain.DELTA_Z);
+    fprintf(fp, "ORIGIN 0 0 0\nSPACING %.17e %.17e %.17e\n", simDomain.DELTA_Y, simDomain.DELTA_X, simDomain.DELTA_Z);
     fprintf(fp, "POINT_DATA %ld\n", subdomain.numCells);
-
-    for (int a = 0; a < simDomain.numPhases; a++)
+    for (int a = 0; a < simDomain.numPhases; ++a)
     {
-        fprintf(fp, "SCALARS %s double 1\n", simDomain.phaseNames[a]);
-        fprintf(fp, "LOOKUP_TABLE default\n");
-
-        for (x = subdomain.xS_r; x < subdomain.xE_r; x++)
-        {
-            for (y = subdomain.yS_r; y < subdomain.yE_r; y++)
-            {
-                for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
-                {
-                    if (IS_LITTLE_ENDIAN)
-                        value = swap_bytes(phi[a*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
-                    else
-                        value = phi[a*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z];
-                    fwrite(&value, sizeof(double), 1, fp);
-                }
-            }
-        }
-
-        fprintf(fp, "\n");
+        fprintf(fp, "SCALARS %s double 1\nLOOKUP_TABLE default\n", simDomain.phaseNames[a]);
+        if (!vtk_write_binary_field(fp, phi+a*subdomain.numCompCells, subdomain, row)) MPI_Abort(comm, EXIT_FAILURE);
     }
-
-    for (int b = 0; b < simDomain.numComponents-1; b++)
+    for (int b = 0; b < simDomain.numComponents-1; ++b)
     {
-        fprintf(fp, "SCALARS Composition_%s double 1\n", simDomain.componentNames[b]);
-        fprintf(fp, "LOOKUP_TABLE default\n");
-
-        for (x = subdomain.xS_r; x < subdomain.xE_r; x++)
-        {
-            for (y = subdomain.yS_r; y < subdomain.yE_r; y++)
-            {
-                for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
-                {
-                    if (IS_LITTLE_ENDIAN)
-                        value = swap_bytes(comp[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
-                    else
-                        value = comp[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z];
-                    fwrite(&value, sizeof(double), 1, fp);
-                }
-            }
-        }
-        fprintf(fp, "\n");
+        fprintf(fp, "SCALARS Composition_%s double 1\nLOOKUP_TABLE default\n", simDomain.componentNames[b]);
+        if (!vtk_write_binary_field(fp, comp+b*subdomain.numCompCells, subdomain, row)) MPI_Abort(comm, EXIT_FAILURE);
     }
-
     if (simControls.FUNCTION_F == 2)
-    {
-        for (int b = 0; b < simDomain.numComponents-1; b++)
+        for (int b = 0; b < simDomain.numComponents-1; ++b)
         {
-            fprintf(fp, "SCALARS Mu_%s double 1\n", simDomain.componentNames[b]);
-            fprintf(fp, "LOOKUP_TABLE default\n");
-
-            for (x = subdomain.xS_r; x < subdomain.xE_r; x++)
-            {
-                for (y = subdomain.yS_r; y < subdomain.yE_r; y++)
-                {
-                    for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
-                    {
-                        if (IS_LITTLE_ENDIAN)
-                            value = swap_bytes(mu[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z]);
-                        else
-                            value = mu[b*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z];
-                        fwrite(&value, sizeof(double), 1, fp);
-                    }
-                }
-            }
-            fprintf(fp, "\n");
+            fprintf(fp, "SCALARS Mu_%s double 1\nLOOKUP_TABLE default\n", simDomain.componentNames[b]);
+            if (!vtk_write_binary_field(fp, mu+b*subdomain.numCompCells, subdomain, row)) MPI_Abort(comm, EXIT_FAILURE);
         }
-    }
-
-    fclose(fp);
+    free(row);
+    if (fclose(fp) != 0) MPI_Abort(comm, EXIT_FAILURE);
 }
 
 int readVTK_ASCII(FILE *fp, double *phi, double *comp, double *mu,
@@ -296,6 +245,33 @@ int readVTK_ASCII(FILE *fp, double *phi, double *comp, double *mu,
     return 1;
 }
 
+/* Consume only the end of the ASCII header, never bytes of binary data.
+ * fscanf("%le") here could eat payload bytes resembling whitespace/numbers. */
+static int vtk_binary_payload_start(FILE *fp)
+{
+    int ch;
+    do { ch = fgetc(fp); } while (ch == ' ' || ch == '\t');
+    if (ch == '\r') ch = fgetc(fp);
+    return ch == '\n';
+}
+
+static int vtk_read_binary_field(FILE *fp, double *field, subdomainInfo sd)
+{
+    const size_t nz = (size_t)(sd.zE_r - sd.zS_r);
+    double *row = (double*)malloc(sizeof(double)*nz);
+    if (!row) return 0;
+    for (long x = sd.xS_r; x < sd.xE_r; ++x)
+        for (long y = sd.yS_r; y < sd.yE_r; ++y)
+        {
+            if (fread(row, sizeof(double), nz, fp) != nz) { free(row); return 0; }
+            double *dst = field + x*sd.xStep + y*sd.yStep + sd.zS_r;
+            for (size_t z = 0; z < nz; ++z)
+                dst[z] = IS_LITTLE_ENDIAN ? swap_bytes(row[z]) : row[z];
+        }
+    free(row);
+    return 1;
+}
+
 int readVTK_BINARY(FILE *fp, double *phi, double *comp, double *mu,
                    domainInfo simDomain, subdomainInfo subdomain,
                    controls simControls)
@@ -308,7 +284,7 @@ int readVTK_BINARY(FILE *fp, double *phi, double *comp, double *mu,
 
     long layer_size = subdomain.sizeX*subdomain.sizeY;
 
-    while(fscanf(fp, "%s", temp))
+    while (fscanf(fp, "%999s", temp) == 1)
     {
         if (strcmp(temp, "DIMENSIONS") == 0)
         {
@@ -316,7 +292,7 @@ int readVTK_BINARY(FILE *fp, double *phi, double *comp, double *mu,
             if(fscanf(fp, "%ld", &temp_mx));
             if(fscanf(fp, "%ld", &temp_mz));
 
-            if (temp_mx != (subdomain.xE-subdomain.xS+1) || temp_my != (subdomain.yE-subdomain.yS+1) || temp_mz != (subdomain.zE-subdomain.zS+1))
+            if (temp_mx != subdomain.numX || temp_my != subdomain.numY || temp_mz != subdomain.numZ)
             {
                 printf("Dimensions do not match. Filling using specified filling file\n");
                 return 0;
@@ -338,66 +314,28 @@ int readVTK_BINARY(FILE *fp, double *phi, double *comp, double *mu,
         }
         else if (strcmp(temp, "default") == 0 && a < simDomain.numPhases)
         {
-            if(fscanf(fp, "%le", &value));
-            for (x = subdomain.xS_r; x < subdomain.xE_r; x++)
-            {
-                for (y = subdomain.yS_r; y < subdomain.yE_r; y++)
-                {
-                    for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
-                    {
-                        if(fread(&value, sizeof(double), 1, fp));
-                        if (IS_LITTLE_ENDIAN)
-                            phi[a*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z] = swap_bytes(value);
-                        else
-                            phi[a*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z] = value;
-                    }
-                }
-            }
+            if (!vtk_binary_payload_start(fp)) return 0;
+            if (!vtk_read_binary_field(fp, phi+a*subdomain.numCompCells, subdomain)) return 0;
             a++;
         }
         else if (strcmp(temp, "default") == 0 && k1 < simDomain.numComponents-1 && a >= simDomain.numPhases)
         {
-            if(fscanf(fp, "%le", &value));
-            for (x = subdomain.xS_r; x < subdomain.xE_r; x++)
-            {
-                for (y = subdomain.yS_r; y < subdomain.yE_r; y++)
-                {
-                    for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
-                    {
-                        if(fread(&value, sizeof(double), 1, fp));
-                        if (IS_LITTLE_ENDIAN)
-                            comp[k1*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z] = swap_bytes(value);
-                        else
-                            comp[k1*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z] = value;
-                    }
-                }
-            }
+            if (!vtk_binary_payload_start(fp)) return 0;
+            if (!vtk_read_binary_field(fp, comp+k1*subdomain.numCompCells, subdomain)) return 0;
             k1++;
         }
         else if (strcmp(temp, "default") == 0 && k2 < simDomain.numComponents-1 && k1 >= simDomain.numComponents-1 && a >= simDomain.numPhases && simControls.FUNCTION_F == 2)
         {
-            if(fscanf(fp, "%le", &value));
-            for (x = subdomain.xS_r; x < subdomain.xE_r; x++)
-            {
-                for (y = subdomain.yS_r; y < subdomain.yE_r; y++)
-                {
-                    for (z = subdomain.zS_r; z < subdomain.zE_r; z++)
-                    {
-                        if(fread(&value, sizeof(double), 1, fp));
-                        if (IS_LITTLE_ENDIAN)
-                            mu[k2*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z] = swap_bytes(value);
-                        else
-                            mu[k2*subdomain.numCompCells + x*subdomain.xStep + y*subdomain.yStep + z] = value;
-                    }
-                }
-            }
+            if (!vtk_binary_payload_start(fp)) return 0;
+            if (!vtk_read_binary_field(fp, mu+k2*subdomain.numCompCells, subdomain)) return 0;
             k2++;
         }
         else if ((k2 == simDomain.numComponents-1 && simControls.FUNCTION_F == 2) || (k1 == simDomain.numComponents-1 && simControls.FUNCTION_F != 2))
             break;
     }
 
-    return 1;
+    return a == simDomain.numPhases && k1 == simDomain.numComponents-1 &&
+           (simControls.FUNCTION_F != 2 || k2 == simDomain.numComponents-1);
 }
 
 void read_domain(double *phi, double *comp, double *mu,

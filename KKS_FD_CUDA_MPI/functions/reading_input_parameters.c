@@ -520,12 +520,15 @@ int readInput_MPI(domainInfo *simDomain, controls *simControls,
             }
             else if (strcmp(tmpstr1, "INHOM_DIAGNOSTICS") == 0)
             {
-                simControls->inhomDiagnostics = atoi(tmpstr2);
-                if (simControls->inhomDiagnostics != 0 && simControls->inhomDiagnostics != 1)
+                char *end;
+                long mode = strtol(tmpstr2, &end, 10);
+                while (*end == ' ' || *end == '\t') ++end;
+                if (end == tmpstr2 || *end || mode < 0 || mode > 2)
                 {
-                    fprintf(stderr, "INHOM_DIAGNOSTICS must be 0 or 1.\n");
+                    fprintf(stderr, "INHOM_DIAGNOSTICS must be 0, 1 (volume), or 2 (z slice).\n");
                     fclose(fr); fclose(fp); return 1;
                 }
+                simControls->inhomDiagnostics = (int)mode;
             }
             else if (strcmp(tmpstr1, "INHOM_2D_MODE") == 0)
             {

@@ -1,0 +1,12 @@
+{
+  "cpu_mpi_comparison": {
+    "strain_max_error": 1.2560140644560236e-12,
+    "stress_max_error_Pa": 0.9377455115318298,
+    "energy_max_error_J_per_m3": 0.0010124355321750045,
+    "elastic_force_max_error_Pa": 0.0031900808680802584,
+    "cpu_1_vs_4_rank_max_strain_error": 4.336808689942018e-18,
+    "cpu_1_vs_4_rank_max_stress_error_Pa": 1.9073486328125e-06
+  },
+  "slice_max_difference": 0.0,
+  "reject_invalid_slice": "PASS"
+}

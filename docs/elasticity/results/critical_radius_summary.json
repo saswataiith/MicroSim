@@ -1,0 +1,22 @@
+{
+  "initial_radius_bracket_nm": [
+    58.9,
+    59.048
+  ],
+  "late_velocity_interpolated_zero_radius_nm": 59.04760510903439,
+  "time_window_crossings": [
+    {
+      "window": "velocity_50_100_ns_m_per_s",
+      "interpolated_zero_radius_nm": 59.04720714145149
+    },
+    {
+      "window": "velocity_100_150_ns_m_per_s",
+      "interpolated_zero_radius_nm": 59.040440143038914
+    },
+    {
+      "window": "velocity_150_200_ns_m_per_s",
+      "interpolated_zero_radius_nm": 59.0552668829123
+    }
+  ],
+  "interpretation": "Operational zero area-velocity estimate for seeded diffuse profiles in this finite periodic cell over 50-200 ns. Not a fully converged stationary saddle or spatial/thickness extrapolation."
+}

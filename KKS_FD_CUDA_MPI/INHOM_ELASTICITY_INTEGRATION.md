@@ -109,3 +109,47 @@ and quadratic moments), the F1 anti-trapping positive-x composition sampling
 (shared face flux), and roundoff-level gradient normalization in 2D. Explicit
 `ANTI_TRAPPING=0` is respected; the historical enabled default remains 1.
 ASCII fields preserve 17-digit precision for restart and verification.
+
+## Large-volume diagnostics and binary checkpoints
+
+`INHOM_DIAGNOSTICS = 0` keeps ordinary runs free of diagnostic copies.
+`INHOM_DIAGNOSTICS = 1` retains the full per-rank CSV diagnostic.
+`INHOM_DIAGNOSTICS = 2` writes one physical z plane instead:
+
+```bash
+export MICROSIM_DIAGNOSTIC_Z_INDEX=64  # zero-based index; defaults to MESH_Z/2
+mpiexec -n 1 ./microsim_kks_fd_cuda_mpi input.in fill.in state
+```
+
+The slice file is named `elastic_rank<R>_step<S>_slice_z<Z>.csv`, with the same
+`h,exx,eyy,ezz,eyz,exz,exy,dfdh` columns as the full diagnostic. Strains are total
+tensor strains, including the evaluated homogeneous strain. Rows cover the local
+physical x slab in `[local_x][global_y]` order. The slice uses strided copies of
+only the requested plane; it does not allocate full-volume host strain arrays.
+Invalid z indices abort explicitly. This path is opt-in and outside performance
+measurements.
+
+For large-volume output, `WRITEFORMAT = BINARY` avoids decimal conversion and
+preserves double precision. Binary restart uses physical cell counts, consumes
+only the ASCII header terminator before each payload, and rejects truncated
+fields. Endian conversion and I/O operate on contiguous physical rows without
+writing halo cells. The regression test covers 2D/3D, F1/F2 field layouts, multiple
+MPI ranks, unchanged halos, and payload bytes resembling text whitespace/digits:
+
+```bash
+bash tests/run_vtk_binary_io.sh
+```
+
+The elastic iteration now swaps accepted/workspace displacement descriptors
+instead of copying three complex volumes after every iteration. Box views are
+rebuilt from the current descriptors at each iteration, including across warm
+starts. This changes neither the convergence norm nor tolerance, interpolation,
+constitutive law, frequency convention, or precision.
+
+The 256-cubed execution benchmark uses eight particles, two different cubic
+stiffness tensors, diagonal isotropic eigenstrain, F1 chemistry and zero mean
+stress. It exercises the full 3D constitutive law, with no plane-strain reduction.
+The grids and spacings in that benchmark are cubic. Comparisons with the
+independent FFTW-MPI CPU solver are performed on a smaller matching field.
+Execution and timing checks are not a spatial-convergence or long-production
+validation, and one physical GPU does not validate multi-GPU scaling.

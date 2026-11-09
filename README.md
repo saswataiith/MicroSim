@@ -1,4 +1,16 @@
 # MicroSim
+
+## Inhomogeneous-elasticity feature branch
+
+This branch contains verified CPU/MPI and C/CUDA elasticity work, including
+stress-free generalized plane strain, intrinsic 2D, seeded-nucleus growth and a
+256³ cubic-elasticity execution/optimization study. Start with the
+[study guide and numerical limits](docs/elasticity/README.md),
+[CUDA build/run README](KKS_FD_CUDA_MPI/README.md),
+[CPU/C-interface README](KKS_CPU_MPI/README.md), and [CHANGES](CHANGES.md).
+Simulation evolution is compiled C/CUDA or CPU/MPI C++; Python handles preparation,
+verification and plotting. Results are synthetic numerical benchmarks.
+
 MicroSim is a software stack that consists of phase-field codes that offer flexibility with discretization, models as 
 well as the high-performance computing hardware(CPU/GPU) that they can execute on. Along with this the stack also consists of Multi-physics solver modules 
 that are based on OpenFoam and AMRex libraries(will be added soon). The stack has an integrator interface that is built 
