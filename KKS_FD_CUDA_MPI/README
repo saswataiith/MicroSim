@@ -1,3 +1,6 @@
+For the verified elasticity branch, current build commands and studies, see README.md
+and ../docs/elasticity/README.md. The instructions below describe the legacy module.
+
 This module solves a multiphase, multicomponent KKS-formulation of the phase-field equations.
 The code is written using CUDA and OpenMPI, and can be employ multiple GPUs in a multi-node setting.
 It has been tested using Nvidia Tesla V100s, Nvidia Tesla P100s, Nvidia Tesla K80s, Nvidia RTX 30x0, and Nvidia GTX 1650, with CUDA 11.x, 12.x and OpenMPI 4.0.x.

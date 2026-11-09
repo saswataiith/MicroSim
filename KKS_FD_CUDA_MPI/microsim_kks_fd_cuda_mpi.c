@@ -80,9 +80,9 @@ int main(int argc, char *argv[])
     if (MPI_Enabled && rank == MASTER)
         printf("MPI enabled\n");
 
-    domainInfo      simDomain;              // Global mesh size and cell size
-    controls        simControls;            // Timestep, num. of iterations, etc.
-    simParameters   simParams;              // All the simulation parameters and details
+    domainInfo      simDomain = {};              // Global mesh size and cell size
+    controls        simControls = {};            // Timestep, num. of iterations, etc.
+    simParameters   simParams = {};              // All the simulation parameters and details
     fillParameters  simFill;                // Parameters for filling the domain
     subdomainInfo   subdomain;              // MPI subdomain info
 

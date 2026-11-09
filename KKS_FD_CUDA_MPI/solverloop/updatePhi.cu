@@ -1,4 +1,5 @@
 #include "updatePhi.cuh"
+#include "../functions/fdStencil.h"
 
 #define phiAniso(phase, x, y, z) (phiAniso[(((phase)*3 + (x))*3 + (y))*3 + (z)])
 
@@ -110,15 +111,13 @@ void __updatePhi__(double **phi, double **dfdphi, double **phiNew,
                     }
                     else if (DIMENSION == 2)
                     {
-                        //Centre
-                        aniso[phase] = -3.0*phiAniso(phase, 1, 1, 1)/(DELTA_X*DELTA_Y);
-
-                        // Nearest neighbours
-                        aniso[phase] += 0.5*(phiAniso(phase, 0, 1, 1) + phiAniso(phase, 2, 1, 1))/(DELTA_X*DELTA_X);
-                        aniso[phase] += 0.5*(phiAniso(phase, 1, 0, 1) + phiAniso(phase, 1, 2, 1))/(DELTA_Y*DELTA_Y);
-
-                        // Second-nearest neighbours
-                        aniso[phase] += 0.25*(phiAniso(phase, 0, 0, 1) + phiAniso(phase, 0, 2, 1) + phiAniso(phase, 2, 2, 1) + phiAniso(phase, 2, 0, 1))/(DELTA_X*DELTA_Y);
+                        aniso[phase] = microsim_laplacian_2d(
+                            phiAniso(phase,1,1,1),
+                            phiAniso(phase,0,1,1),phiAniso(phase,2,1,1),
+                            phiAniso(phase,1,0,1),phiAniso(phase,1,2,1),
+                            phiAniso(phase,0,0,1)+phiAniso(phase,0,2,1)+
+                            phiAniso(phase,2,0,1)+phiAniso(phase,2,2,1),
+                            DELTA_X, DELTA_Y);
                     }
                     else if (DIMENSION == 3)
                     {

@@ -1,0 +1,17 @@
+{
+  "steps": 2,
+  "first_force": "Independent CPU/FFTW-MPI force",
+  "second_force": "CUDA mechanical snapshot; chemical and phase/transport updates remain independently evaluated",
+  "phase_max_difference": 4.363176486776865e-14,
+  "composition_max_difference": 1.1102230246251565e-16,
+  "records": [
+    {
+      "step": 0,
+      "mechanical_interpolation_error": 2.3314683517128287e-15
+    },
+    {
+      "step": 1,
+      "mechanical_interpolation_error": 3.852473895449293e-14
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 name: Inhomogeneous elasticity host checks
 on:
   push:
-    branches: [MicroScim-CUDA-InhomElast]
+    branches: [MicroScim-CUDA-InhomElast, MicroSim-CUDA-2D-Inhom-F1]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -22,8 +22,25 @@ jobs:
           python -m pip install -r tests/requirements.txt
       - name: Source host regressions
         run: python tests/run_branch_checks.py
+      - name: Case preparation and restart tools
+        run: python tests/test_elasticity_case_tools.py
+      - name: Binary restart and output regressions
+        env:
+          MPIEXEC: mpiexec --oversubscribe
+        run: bash tests/run_vtk_binary_io.sh
       - name: CPU MPI acceptance suite
         working-directory: KKS_CPU_MPI
         env:
           MPIEXEC: mpiexec --oversubscribe
         run: make test HDF5_PKG=hdf5-openmpi PYTHON=python
+
+      - name: C interface rank, empty-slab and independent-field checks
+        working-directory: KKS_CPU_MPI
+        run: |
+          make build/cuda_field_reference HDF5_PKG=hdf5-openmpi
+          mkdir -p build/c_api_fields
+          mpiexec --oversubscribe -n 1 build/test_c_api 1 build/c_api_fields/api
+          python tests/check_c_fields.py build/c_api_fields
+          mpiexec --oversubscribe -n 4 build/test_c_api 1
+          mpiexec --oversubscribe -n 16 build/test_c_api 1
+          mpiexec --oversubscribe -n 1 build/test_c_api 2

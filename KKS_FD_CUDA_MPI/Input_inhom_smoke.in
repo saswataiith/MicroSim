@@ -33,10 +33,10 @@ EIGEN_STRAIN = {1,0,0,0,0,0,0};
 VOIGT_ISOTROPIC = {0,4.5e11,1.5e11,1.2e11};
 VOIGT_ISOTROPIC = {1,3e11,1e11,8e10};
 ##Boundary conditions
-BOUNDARY = {phi,3,3,3,3,0,0};
-BOUNDARY = {mu,3,3,3,3,0,0};
-BOUNDARY = {c,3,3,3,3,0,0};
-BOUNDARY = {T,3,3,3,3,0,0};
+BOUNDARY = {phi,3,3,3,3,3,3};
+BOUNDARY = {mu,3,3,3,3,3,3};
+BOUNDARY = {c,3,3,3,3,3,3};
+BOUNDARY = {T,3,3,3,3,3,3};
 BOUNDARY_VALUE = {phi,0,0,0,0,0,0};
 BOUNDARY_VALUE = {mu,0,0,0,0,0,0};
 BOUNDARY_VALUE = {c,0,0,0,0,0,0};

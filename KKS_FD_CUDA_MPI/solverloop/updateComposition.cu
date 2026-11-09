@@ -1,5 +1,6 @@
 //#include <cub/cub.cuh>
 #include "updateComposition.cuh"
+#include "../functions/fdStencil.h"
 
 __global__
 void __updateComposition__(double **phi, double **phiNew,
@@ -108,7 +109,7 @@ void __updateComposition__(double **phi, double **phiNew,
                 {
                     alpha[phase][component][0] = A1*(phaseComp[component*NUMPHASES + NUMPHASES-1][index[1][1][1]] - phaseComp[component*NUMPHASES + phase][index[1][1][1]]);
 
-                    alpha[phase][component][1] = A1*(phaseComp[component*NUMPHASES + NUMPHASES-1][index[2][1][1]] - phaseComp[component*NUMPHASES + phase][index[1][1][1]]);
+                    alpha[phase][component][1] = A1*(phaseComp[component*NUMPHASES + NUMPHASES-1][index[2][1][1]] - phaseComp[component*NUMPHASES + phase][index[2][1][1]]);
                     alpha[phase][component][2] = A1*(phaseComp[component*NUMPHASES + NUMPHASES-1][index[0][1][1]] - phaseComp[component*NUMPHASES + phase][index[0][1][1]]);
 
                     if (DIMENSION == 2)
@@ -281,7 +282,9 @@ void __updateComposition__(double **phi, double **phiNew,
                 {
                     scalprodct[phase][iter] = -1.0*(phix[phase][iter]*phix[NUMPHASES-1][iter] + phiy[phase][iter]*phiy[NUMPHASES-1][iter] + phiz[phase][iter]*phiz[NUMPHASES-1][iter]);
 
-                    if (modgradphi[NUMPHASES-1][iter] > 0.0)
+                    if ((DIMENSION==2 ? microsim_2d_gradient_resolved(modgradphi[phase][iter],DELTA_X,DELTA_Y) &&
+                         microsim_2d_gradient_resolved(modgradphi[NUMPHASES-1][iter],DELTA_X,DELTA_Y) :
+                         modgradphi[phase][iter]>0.0 && modgradphi[NUMPHASES-1][iter]>0.0))
                     {
                         scalprodct[phase][iter] /= (modgradphi[phase][iter]*modgradphi[NUMPHASES-1][iter]);
                     }
@@ -294,21 +297,17 @@ void __updateComposition__(double **phi, double **phiNew,
                 {
                     double diffLocal = 1.0 - diffusivity[(component + phase*(NUMCOMPONENTS-1))*(NUMCOMPONENTS-1) + component]/diffusivity[(component + (NUMPHASES-1)*(NUMCOMPONENTS-1))*(NUMCOMPONENTS-1) + component];
 
-                    jat[phase][component][1] = (alphidot[phase][component][1]*phix[phase][1]/modgradphi[phase][1])*diffLocal*fabs(scalprodct[phase][1]);
-                    jat[phase][component][2] = (alphidot[phase][component][2]*phix[phase][2]/modgradphi[phase][2])*diffLocal*fabs(scalprodct[phase][2]);
-
-                    if (DIMENSION == 2)
-                    {
-                        jat[phase][component][3] = (alphidot[phase][component][3]*phiy[phase][3]/modgradphi[phase][3])*diffLocal*fabs(scalprodct[phase][3]);
-                        jat[phase][component][4] = (alphidot[phase][component][4]*phiy[phase][4]/modgradphi[phase][4])*diffLocal*fabs(scalprodct[phase][4]);
-                    }
-                    else if (DIMENSION == 3)
-                    {
-                        jat[phase][component][3] = ((alphidot[phase][component][3]*phiy[phase][3])/(modgradphi[phase][3]))*diffLocal*fabs(scalprodct[phase][3]);
-                        jat[phase][component][4] = ((alphidot[phase][component][4]*phiy[phase][4])/(modgradphi[phase][4]))*diffLocal*fabs(scalprodct[phase][4]);
-
-                        jat[phase][component][5] = ((alphidot[phase][component][5]*phiz[phase][5])/(modgradphi[phase][5]))*diffLocal*fabs(scalprodct[phase][5]);
-                        jat[phase][component][6] = ((alphidot[phase][component][6]*phiz[phase][6])/(modgradphi[phase][6]))*diffLocal*fabs(scalprodct[phase][6]);
+                    // One shared face flux, with a defined zero-gradient limit.
+                    for(long face=1;face<maxPos;++face) {
+                        jat[phase][component][face]=0.0;
+                        if(DIMENSION==2 ? microsim_2d_gradient_resolved(modgradphi[phase][face],DELTA_X,DELTA_Y) &&
+                           microsim_2d_gradient_resolved(modgradphi[NUMPHASES-1][face],DELTA_X,DELTA_Y) :
+                           modgradphi[phase][face]>0.0 && modgradphi[NUMPHASES-1][face]>0.0) {
+                            const double normal=(face<=2 ? phix[phase][face] :
+                                                 face<=4 ? phiy[phase][face] : phiz[phase][face]);
+                            jat[phase][component][face]=alphidot[phase][component][face]*normal/
+                                modgradphi[phase][face]*diffLocal*fabs(scalprodct[phase][face]);
+                        }
                     }
                 }
             }

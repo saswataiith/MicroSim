@@ -1,0 +1,62 @@
+[
+  {
+    "radius_nm": 50.0,
+    "initial_effective_radius_nm": 50.09129849296373,
+    "final_effective_radius_nm": 49.76520559978728,
+    "total_increment_nm": -0.326092893176452,
+    "late_velocity_m_per_s": -0.0009047494865022207,
+    "late_angular_velocity_min_m_per_s": -0.0009165565314664611,
+    "late_angular_velocity_max_m_per_s": -0.00089615701940141,
+    "mass_drift": 1.1102230246251565e-16
+  },
+  {
+    "radius_nm": 58.9,
+    "initial_effective_radius_nm": 58.97752270747891,
+    "final_effective_radius_nm": 58.97112216546734,
+    "total_increment_nm": -0.0064005420115674115,
+    "late_velocity_m_per_s": -1.2351327178552215e-05,
+    "late_angular_velocity_min_m_per_s": -2.0010656131830566e-05,
+    "late_angular_velocity_max_m_per_s": -4.687379804656533e-06,
+    "mass_drift": 1.1102230246251565e-16
+  },
+  {
+    "radius_nm": 59.048,
+    "initial_effective_radius_nm": 59.12532865626365,
+    "final_effective_radius_nm": 59.12341212273289,
+    "total_increment_nm": -0.0019165335307559036,
+    "late_velocity_m_per_s": 3.304375809209585e-08,
+    "late_angular_velocity_min_m_per_s": -7.534819925230982e-06,
+    "late_angular_velocity_max_m_per_s": 7.716017113965937e-06,
+    "mass_drift": 1.1102230246251565e-16
+  },
+  {
+    "radius_nm": 59.2049,
+    "initial_effective_radius_nm": 59.282023993122834,
+    "final_effective_radius_nm": 59.28483645855693,
+    "total_increment_nm": 0.002812465434092426,
+    "late_velocity_m_per_s": 1.3090260915394875e-05,
+    "late_angular_velocity_min_m_per_s": 5.716671208829271e-06,
+    "late_angular_velocity_max_m_per_s": 2.0941057419021718e-05,
+    "mass_drift": 0.0
+  },
+  {
+    "radius_nm": 60.0,
+    "initial_effective_radius_nm": 60.076103275022696,
+    "final_effective_radius_nm": 60.102497933998684,
+    "total_increment_nm": 0.0263946589759922,
+    "late_velocity_m_per_s": 7.814511015773785e-05,
+    "late_angular_velocity_min_m_per_s": 7.066814818126822e-05,
+    "late_angular_velocity_max_m_per_s": 8.572009620472596e-05,
+    "mass_drift": 1.1102230246251565e-16
+  },
+  {
+    "radius_nm": 70.0,
+    "initial_effective_radius_nm": 70.06524234391252,
+    "final_effective_radius_nm": 70.34292965551565,
+    "total_increment_nm": 0.2776873116031326,
+    "late_velocity_m_per_s": 0.0007656416179221885,
+    "late_angular_velocity_min_m_per_s": 0.0007567248327674728,
+    "late_angular_velocity_max_m_per_s": 0.0007781328832331338,
+    "mass_drift": 1.1102230246251565e-16
+  }
+]

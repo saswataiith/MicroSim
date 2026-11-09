@@ -25,3 +25,21 @@ test: all
 	$(PYTHON) tests/run_validation.py
 clean:
 	rm -rf build
+
+# Pure-C calling interface backed by the same tested C++ elasticity engine.
+build/elasticity_c.o: src/elasticity_c.cpp include/elasticity_c.h include/cpu_mpi.hpp | build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+build/libelasticity_c.a: build/elasticity.o build/elasticity_c.o
+	ar rcs $@ $^
+build/test_c_api.o: tests/test_c_api.c include/elasticity_c.h | build
+	mpicc $(CPPFLAGS) -std=c11 -O2 -Wall -Wextra -c $< -o $@
+build/test_c_api: build/test_c_api.o build/libelasticity_c.a
+	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
+
+all: build/test_c_api
+
+# Fixed cubic benchmark reference for comparison with CUDA diagnostic fields.
+build/cuda_field_reference.o: tests/cuda_field_reference.c include/elasticity_c.h | build
+	mpicc $(CPPFLAGS) -std=c11 -O2 -Wall -Wextra -c $< -o $@
+build/cuda_field_reference: build/cuda_field_reference.o build/libelasticity_c.a
+	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@

@@ -1,0 +1,17 @@
+{
+  "baseline_seconds": [
+    99.81625011700089,
+    101.0526873969975,
+    100.75231367900051
+  ],
+  "optimized_seconds": [
+    94.77689408399965,
+    94.39893853600006,
+    96.79647183799898
+  ],
+  "baseline_median_seconds": 100.75231367900051,
+  "optimized_median_seconds": 94.77689408399965,
+  "median_wall_time_reduction_percent": 5.930801365057182,
+  "median_speedup": 1.0630472189741196,
+  "peak_gpu_MiB": 9142
+}

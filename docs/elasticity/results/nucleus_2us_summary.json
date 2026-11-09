@@ -1,0 +1,138 @@
+{
+  "initial_nominal_radius_nm": 70,
+  "final_time_s": 2e-06,
+  "initial_area_radius_m": 7.006524234391252e-08,
+  "restart_area_radius_m": 7.034292965551565e-08,
+  "final_area_radius_m": 7.09540291954452e-08,
+  "radius_growth_m": 8.887868515326842e-10,
+  "mass_drift": 8.881784197001252e-16,
+  "snapshots": [
+    {
+      "time_s": 2.0000000000000002e-07,
+      "radius_m": 7.034292965551565e-08,
+      "instantaneous_area_velocity_m_per_s": 0.0006552052743256794,
+      "chemical_drive_Pa": 1853265.230438641,
+      "elastic_resistance_Pa": 419352.6645432151,
+      "capillary_diffuse_Pa": 1409145.8424365504,
+      "capillary_gamma_over_R_Pa": 1421606.982957937,
+      "net_drive_Pa": 24766.723458875716,
+      "measured_kinetic_projection_Pa": 24766.723458795394,
+      "max_angular_balance_residual_Pa": 5.297406460158527e-07,
+      "interface_mu_J_per_mol": 19776.933267323933,
+      "equilibrium_GT_mu_J_per_mol": 19774.69001673264,
+      "mu_equilibrium_flat_unstrained_J_per_mol": 19608.0,
+      "mean_strain": [
+        4.49185928373285e-05,
+        4.491859283732852e-05,
+        5.090794109789408e-05,
+        -7.278155414700952e-21
+      ],
+      "mean_stress_Pa": [
+        5.180936568649486e-09,
+        7.450580596923828e-09,
+        7.450580596923828e-09,
+        1.7852386235972517e-10
+      ],
+      "phase_rate_max_error_per_s": 0.002280977728010286,
+      "python_stress_max_difference_Pa": 0.02766844630241394,
+      "python_strain_max_difference": 6.694003803955212e-14,
+      "python_equilibrium_residual": 1.795103379892547e-10
+    },
+    {
+      "time_s": 5e-07,
+      "radius_m": 7.049748965388019e-08,
+      "instantaneous_area_velocity_m_per_s": 0.0004286016257351262,
+      "chemical_drive_Pa": 1841353.8016256737,
+      "elastic_resistance_Pa": 419160.3188490743,
+      "capillary_diffuse_Pa": 1405985.9148731455,
+      "capillary_gamma_over_R_Pa": 1418490.2255522513,
+      "net_drive_Pa": 16207.567903453797,
+      "measured_kinetic_projection_Pa": 16207.567903339885,
+      "max_angular_balance_residual_Pa": 5.787187546957284e-07,
+      "interface_mu_J_per_mol": 19775.85444328231,
+      "equilibrium_GT_mu_J_per_mol": 19774.386335522562,
+      "mu_equilibrium_flat_unstrained_J_per_mol": 19608.0,
+      "mean_strain": [
+        4.5115277117295525e-05,
+        4.5115277117295546e-05,
+        5.113020455470243e-05,
+        -3.537024299276746e-21
+      ],
+      "mean_stress_Pa": [
+        -2.8380782168824226e-09,
+        0.0,
+        -4.6566128730773926e-09,
+        1.71688441241713e-10
+      ],
+      "phase_rate_max_error_per_s": 0.0015468077595883166
+    },
+    {
+      "time_s": 1e-06,
+      "radius_m": 7.067966654170719e-08,
+      "instantaneous_area_velocity_m_per_s": 0.00031917850447019325,
+      "chemical_drive_Pa": 1833342.0735319369,
+      "elastic_resistance_Pa": 418932.26934273506,
+      "capillary_diffuse_Pa": 1402338.330109966,
+      "capillary_gamma_over_R_Pa": 1414834.066046297,
+      "net_drive_Pa": 12071.474079236214,
+      "measured_kinetic_projection_Pa": 12071.474079175014,
+      "max_angular_balance_residual_Pa": 4.510493454290554e-07,
+      "interface_mu_J_per_mol": 19775.12874225367,
+      "equilibrium_GT_mu_J_per_mol": 19774.03523447646,
+      "mu_equilibrium_flat_unstrained_J_per_mol": 19608.0,
+      "mean_strain": [
+        4.534764906214885e-05,
+        4.534764906214886e-05,
+        5.139279146651175e-05,
+        3.640473574634159e-21
+      ],
+      "mean_stress_Pa": [
+        -2.5233930500689894e-09,
+        0.0,
+        -1.862645149230957e-09,
+        -3.3500668905617204e-10
+      ],
+      "phase_rate_max_error_per_s": 0.0006783448010827719
+    },
+    {
+      "time_s": 2e-06,
+      "radius_m": 7.09540291954452e-08,
+      "instantaneous_area_velocity_m_per_s": 0.00024269475406979682,
+      "chemical_drive_Pa": 1824663.6081774072,
+      "elastic_resistance_Pa": 418587.22360385966,
+      "capillary_diffuse_Pa": 1396896.851174323,
+      "capillary_gamma_over_R_Pa": 1409363.2332639873,
+      "net_drive_Pa": 9179.533399224505,
+      "measured_kinetic_projection_Pa": 9179.533399138865,
+      "max_angular_balance_residual_Pa": 4.7084904508665204e-07,
+      "interface_mu_J_per_mol": 19774.34258805742,
+      "equilibrium_GT_mu_J_per_mol": 19773.511004782846,
+      "mu_equilibrium_flat_unstrained_J_per_mol": 19608.0,
+      "mean_strain": [
+        4.5698704599425634e-05,
+        4.569870459942565e-05,
+        5.178946730966329e-05,
+        2.9362120011065116e-20
+      ],
+      "mean_stress_Pa": [
+        -7.567905413452536e-09,
+        -8.847564458847046e-09,
+        -6.51925802230835e-09,
+        -1.518216663498606e-10
+      ],
+      "phase_rate_max_error_per_s": 0.0006136107466773945,
+      "python_stress_max_difference_Pa": 0.02799108624458313,
+      "python_strain_max_difference": 6.619230445877033e-14,
+      "python_equilibrium_residual": 1.7957305085803194e-10
+    }
+  ],
+  "timestep_check": {
+    "duration_s": 2e-08,
+    "fine_dt_s": 1e-10,
+    "production_dt_s": 2e-10,
+    "phase_max_difference": 1.0129007754766661e-07,
+    "composition_max_difference": 2.019128020336325e-08,
+    "radius_difference_m": 1.3717986042589868e-15,
+    "relative_radius_increment_difference": 0.00010715971394162549
+  }
+}

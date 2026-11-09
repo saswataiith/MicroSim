@@ -9,6 +9,7 @@
 #include <initializer_list>
 #include <climits>
 #include <utility>
+#include <vector>
 #include <cub/cub.cuh>
 
 #include "box_iterator.hpp"
@@ -56,7 +57,7 @@ static __device__ void inh_get_omega(double *omega, const double* __restrict__ n
 
 /* ------------------------------------------------------------------ */
 /* bridge kernels: module halo layout  <->  cuFFTMp slab layout        */
-/* (3-D, padding == 1, matching compute_hphi in computeElastic.cu)     */
+/* 2-D/3-D, padding == 1 in active axes; singleton z has no halo.      */
 /* ------------------------------------------------------------------ */
 __global__
 void inh_bridge_hphi(double **phi, double *hphisum, long precip,
@@ -70,10 +71,12 @@ void inh_bridge_hphi(double **phi, double *hphisum, long precip,
     if (x >= sizeX || y >= sizeY || z >= sizeZ)
         return;
 
-    if (x != 0 && x != sizeX-1 && y != 0 && y != sizeY-1 && z != 0 && z != sizeZ-1)
+    if (x != 0 && x != sizeX-1 && y != 0 && y != sizeY-1 &&
+        (sizeZ == 1 || (z != 0 && z != sizeZ-1)))
     {
         const long idx    = x*xStep + y*yStep + z;
-        const long fftIdx = (x-1)*(sizeY-2)*(sizeZ-2) + (y-1)*(sizeZ-2) + (z-1);
+        const long nz = sizeZ == 1 ? 1 : sizeZ-2;
+        const long fftIdx = (x-1)*(sizeY-2)*nz + (y-1)*nz + (sizeZ == 1 ? 0 : z-1);
         hphisum[fftIdx] = calcInterp5th(phi, precip, idx, NUMPHASES);
     }
 }
@@ -90,10 +93,12 @@ void inh_bridge_dfeldphi(double **phi, double **dfdphi, const double* __restrict
     if (x >= sizeX || y >= sizeY || z >= sizeZ)
         return;
 
-    if (x != 0 && x != sizeX-1 && y != 0 && y != sizeY-1 && z != 0 && z != sizeZ-1)
+    if (x != 0 && x != sizeX-1 && y != 0 && y != sizeY-1 &&
+        (sizeZ == 1 || (z != 0 && z != sizeZ-1)))
     {
         const long idx    = x*xStep + y*yStep + z;
-        const long fftIdx = (x-1)*(sizeY-2)*(sizeZ-2) + (y-1)*(sizeZ-2) + (z-1);
+        const long nz = sizeZ == 1 ? 1 : sizeZ-2;
+        const long fftIdx = (x-1)*(sizeY-2)*nz + (y-1)*nz + (sizeZ == 1 ? 0 : z-1);
         const double df   = dfelas[fftIdx];
 
         // Match the Bpq interface: chemical kernels apply dh/dphi once.
@@ -112,7 +117,7 @@ __global__
 void inh_eigsts_hom(BoxIterator<cufftDoubleComplex> ux, BoxIterator<cufftDoubleComplex> uxEnd,
                     BoxIterator<cufftDoubleComplex> uy, BoxIterator<cufftDoubleComplex> uz,
                     const double* __restrict__ hphisum, const double* __restrict__ Chom,
-                    double epszero, double misfit_aniso)
+                    double epszero, double misfit_aniso, double misfit_z)
 {
     const long tid = threadIdx.x + (long)blockIdx.x*blockDim.x;
     ux += tid; uy += tid; uz += tid;
@@ -120,11 +125,12 @@ void inh_eigsts_hom(BoxIterator<cufftDoubleComplex> ux, BoxIterator<cufftDoubleC
     {
         const double eig11 = epszero * hphisum[tid];
         const double eig22 = eig11 * misfit_aniso;
+        const double eig33 = eig11 * misfit_z;
         const double C11 = Chom[0], C12 = Chom[1];
 
-        *ux = { fma(C11, eig11, C12*(eig22 + eig22)), 0.0 };
-        *uy = { fma(C11, eig22, C12*(eig11 + eig22)), 0.0 };
-        *uz = { fma(C11, eig22, C12*(eig11 + eig22)), 0.0 };
+        *ux = { fma(C11, eig11, C12*(eig22 + eig33)), 0.0 };
+        *uy = { fma(C11, eig22, C12*(eig11 + eig33)), 0.0 };
+        *uz = { fma(C11, eig33, C12*(eig11 + eig22)), 0.0 };
     }
 }
 
@@ -236,49 +242,26 @@ void inh_Ctotal(double *C11, double *C12, double *C44,
 
 /* average compliance from average stiffness (scalar work, on device)   */
 __global__
-void inh_Sij(double *Cavg, double *S_d, double sizescale)
+void inh_Sij(double *Cavg, double *S_d, double sizescale, int model2d)
 {
     Cavg[0] *= sizescale; Cavg[1] *= sizescale; Cavg[2] *= sizescale;
 
-    const double den = Cavg[0]*Cavg[0] + Cavg[0]*Cavg[1] - 2.0*Cavg[1]*Cavg[1];
-    S_d[0] = (Cavg[0] + Cavg[1]) / den;
-    S_d[1] = -Cavg[1] / den;
-    S_d[2] = 1.0 / Cavg[2];
+    inhom_average_compliance(S_d, Cavg, model2d);
 }
 
-/* eigenstress fields for <sigma*> (isotropic / anisotropic misfit)     */
+/* All three diagonal eigenstress averages, including plane-strain zz. */
 __global__
-void inh_eigsts_avg1(double *e11, const double* __restrict__ hphisum,
-                     const double* __restrict__ Chom, const double* __restrict__ Chet,
-                     double epszero, long n)
+void inh_eigsts_avg_diag(double *s0, double *s1, double *s2, const double *hphi,
+                         const double *ch, const double *dc, double e0,
+                         double ratio_y, double ratio_z, long n)
 {
-    const long tid = threadIdx.x + (long)blockIdx.x*blockDim.x;
-    if (tid < n)
-    {
-        const double h = hphisum[tid];
-        const double t = 2.0*h - 1.0;
-        const double Ct11 = Chom[0] + Chet[0]*t;
-        const double Ct12 = Chom[1] + Chet[1]*t;
-        const double eig11 = epszero * h;
-        e11[tid] = Ct11*eig11 + 2.0*Ct12*eig11;
-    }
-}
-
-__global__
-void inh_eigsts_avg2(double *e11, double *e22, const double* __restrict__ hphisum,
-                     const double* __restrict__ Chom, const double* __restrict__ Chet,
-                     double epszero, double misfit_aniso, long n)
-{
-    const long tid = threadIdx.x + (long)blockIdx.x*blockDim.x;
-    if (tid < n)
-    {
-        const double h = hphisum[tid];
-        const double t = 2.0*h - 1.0;
-        const double Ct11 = Chom[0] + Chet[0]*t;
-        const double Ct12 = Chom[1] + Chet[1]*t;
-        const double eig11 = epszero * h;
-        e11[tid] = Ct11*eig11 + 2.0*Ct12*eig11*misfit_aniso;
-        e22[tid] = Ct11*eig11*misfit_aniso + Ct12*eig11*(1.0 + misfit_aniso);
+    const long i = threadIdx.x + (long)blockIdx.x*blockDim.x;
+    if (i < n) {
+        const double h=hphi[i], c11=ch[0]+dc[0]*(2*h-1), c12=ch[1]+dc[1]*(2*h-1);
+        const double ex=e0*h, ey=ex*ratio_y, ez=ex*ratio_z;
+        s0[i]=c11*ex+c12*(ey+ez);
+        s1[i]=c11*ey+c12*(ex+ez);
+        s2[i]=c11*ez+c12*(ex+ey);
     }
 }
 
@@ -327,24 +310,15 @@ void inh_persts_S(double *p23, double *p13, double *p12,
 /* homogeneous (macroscopic) strain, initial version: scales avgeigsts  */
 __global__
 void inh_homstr(double *hom_strain_v, const double *S_d, const double *sigappl,
-                double *avgeigsts, double *avgpersts, int aniso_is_one,
-                double sizescale)
+                double *avgeigsts, double *avgpersts,
+                double sizescale, int model2d)
 {
     avgpersts[0] *= sizescale; avgpersts[1] *= sizescale; avgpersts[2] *= sizescale;
     avgpersts[3] *= sizescale; avgpersts[4] *= sizescale; avgpersts[5] *= sizescale;
 
-    if (aniso_is_one)
-    {
-        avgeigsts[0] *= sizescale;
-        avgeigsts[1]  = avgeigsts[0];
-        avgeigsts[2]  = avgeigsts[0];
-    }
-    else
-    {
-        avgeigsts[0] *= sizescale;
-        avgeigsts[1] *= sizescale;
-        avgeigsts[2]  = avgeigsts[1];
-    }
+    avgeigsts[0] *= sizescale;
+    avgeigsts[1] *= sizescale;
+    avgeigsts[2] *= sizescale;
 
     const double S11 = S_d[0], S12 = S_d[1], S44 = S_d[2];
 
@@ -355,18 +329,18 @@ void inh_homstr(double *hom_strain_v, const double *S_d, const double *sigappl,
     const double t4 = sigappl[4] - avgpersts[4];
     const double t5 = sigappl[5] - avgpersts[5];
 
-    hom_strain_v[0] = S11*t0 + S12*t1 + S12*t2;
-    hom_strain_v[1] = S12*t0 + S11*t1 + S12*t2;
-    hom_strain_v[2] = S12*t0 + S12*t1 + S11*t2;
-    hom_strain_v[3] = 0.5*S44*t3;
-    hom_strain_v[4] = 0.5*S44*t4;
+    hom_strain_v[0] = S11*t0 + S12*t1 + (model2d == 2 ? 0.0 : S12*t2);
+    hom_strain_v[1] = S12*t0 + S11*t1 + (model2d == 2 ? 0.0 : S12*t2);
+    hom_strain_v[2] = model2d == 2 ? 0.0 : S12*t0 + S12*t1 + S11*t2;
+    hom_strain_v[3] = model2d ? 0.0 : 0.5*S44*t3;
+    hom_strain_v[4] = model2d ? 0.0 : 0.5*S44*t4;
     hom_strain_v[5] = 0.5*S44*t5;
 }
 
 /* in-loop version: avgeigsts already scaled, only avgpersts is fresh   */
 __global__
 void inh_homstr2(double *hom_strain_v, const double *S_d, const double *sigappl,
-                 const double *avgeigsts, double *avgpersts, double sizescale)
+                 const double *avgeigsts, double *avgpersts, double sizescale, int model2d)
 {
     avgpersts[0] *= sizescale; avgpersts[1] *= sizescale; avgpersts[2] *= sizescale;
     avgpersts[3] *= sizescale; avgpersts[4] *= sizescale; avgpersts[5] *= sizescale;
@@ -380,11 +354,11 @@ void inh_homstr2(double *hom_strain_v, const double *S_d, const double *sigappl,
     const double t4 = sigappl[4] - avgpersts[4];
     const double t5 = sigappl[5] - avgpersts[5];
 
-    hom_strain_v[0] = S11*t0 + S12*t1 + S12*t2;
-    hom_strain_v[1] = S12*t0 + S11*t1 + S12*t2;
-    hom_strain_v[2] = S12*t0 + S12*t1 + S11*t2;
-    hom_strain_v[3] = 0.5*S44*t3;
-    hom_strain_v[4] = 0.5*S44*t4;
+    hom_strain_v[0] = S11*t0 + S12*t1 + (model2d == 2 ? 0.0 : S12*t2);
+    hom_strain_v[1] = S12*t0 + S11*t1 + (model2d == 2 ? 0.0 : S12*t2);
+    hom_strain_v[2] = model2d == 2 ? 0.0 : S12*t0 + S12*t1 + S11*t2;
+    hom_strain_v[3] = model2d ? 0.0 : 0.5*S44*t3;
+    hom_strain_v[4] = model2d ? 0.0 : 0.5*S44*t4;
     hom_strain_v[5] = 0.5*S44*t5;
 }
 
@@ -397,7 +371,7 @@ void inh_ts(BoxIterator<cufftDoubleComplex> s0, BoxIterator<cufftDoubleComplex> 
             const double* __restrict__ hom_strain_v,
             const double* __restrict__ hphisum,
             const double* __restrict__ Chom, const double* __restrict__ Chet,
-            double epszero, double misfit_aniso)
+            double epszero, double misfit_aniso, double misfit_z)
 {
     const long tid = threadIdx.x + (long)blockIdx.x*blockDim.x;
     s0 += tid; s1 += tid; s2 += tid; s3 += tid; s4 += tid; s5 += tid;
@@ -406,7 +380,8 @@ void inh_ts(BoxIterator<cufftDoubleComplex> s0, BoxIterator<cufftDoubleComplex> 
         const double hsum  = hphisum[tid];
         const double t     = 2.0*hsum - 1.0;
         const double eig11 = epszero*hsum;
-        const double eig22 = eig11*misfit_aniso;   /* eig33 = eig22 */
+        const double eig22 = eig11*misfit_aniso;
+        const double eig33 = eig11*misfit_z;
 
         const double Ct0 = Chom[0] + Chet[0]*t;    /* C11(r) */
         const double Ct1 = Chom[1] + Chet[1]*t;    /* C12(r) */
@@ -423,15 +398,15 @@ void inh_ts(BoxIterator<cufftDoubleComplex> s0, BoxIterator<cufftDoubleComplex> 
 
         *s0 = { ( Ct0*(eig11-h0) - Cin0*e0
                 + Ct1*(eig22-h1) - Cin1*e1
-                + Ct1*(eig22-h2) - Cin1*e2 ), 0.0 };
+                + Ct1*(eig33-h2) - Cin1*e2 ), 0.0 };
 
         *s1 = { ( Ct1*(eig11-h0) - Cin1*e0
                 + Ct0*(eig22-h1) - Cin0*e1
-                + Ct1*(eig22-h2) - Cin1*e2 ), 0.0 };
+                + Ct1*(eig33-h2) - Cin1*e2 ), 0.0 };
 
         *s2 = { ( Ct1*(eig11-h0) - Cin1*e0
                 + Ct1*(eig22-h1) - Cin1*e1
-                + Ct0*(eig22-h2) - Cin0*e2 ), 0.0 };
+                + Ct0*(eig33-h2) - Cin0*e2 ), 0.0 };
 
         *s3 = { 2.0*(Ct2*(-h3) - Cin2*e3), 0.0 };
         *s4 = { 2.0*(Ct2*(-h4) - Cin2*e4), 0.0 };
@@ -534,33 +509,22 @@ void inh_dfelas(double *dfelas,
                 const double* __restrict__ hom_strain_v,
                 const double* __restrict__ hphisum,
                 const double* __restrict__ Chom, const double* __restrict__ Chet,
-                double epszero, double misfit_aniso)
+                double epszero, double misfit_aniso, double misfit_z)
 {
     const long tid = threadIdx.x + (long)blockIdx.x*blockDim.x;
     s0 += tid; s1 += tid; s2 += tid; s3 += tid; s4 += tid; s5 += tid;
     if (s0 < s0End)
     {
-        const double hphi = hphisum[tid];
-        const double t    = 2.0*hphi - 1.0;
-        const double Ct11 = Chom[0] + Chet[0]*t;
-        const double Ct12 = Chom[1] + Chet[1]*t;
 
-        const double eig11 = epszero;
-        const double eig22 = eig11*misfit_aniso;   /* eig33 = eig22 */
-
-        const double e11 = hom_strain_v[0] + s0->x - eig11*hphi;
-        const double e22 = hom_strain_v[1] + s1->x - eig22*hphi;
-        const double e33 = hom_strain_v[2] + s2->x - eig22*hphi;
-        const double e23 = hom_strain_v[3] + s3->x;
-        const double e13 = hom_strain_v[4] + s4->x;
-        const double e12 = hom_strain_v[5] + s5->x;
-
-        dfelas[tid] = ( 0.5*( 2.0*Chet[0]*(e11*e11 + e22*e22 + e33*e33)
-                            + 4.0*Chet[1]*(e11*e22 + e11*e33 + e22*e33)
-                            + 8.0*Chet[2]*(e23*e23 + e13*e13 + e12*e12) )
-                      - ( Ct11*(e11*eig11 + e22*eig22 + e33*eig22)
-                        + Ct12*( e11*eig22 + e22*eig11 + e11*eig22
-                               + e33*eig11 + e22*eig22 + e33*eig22) ) );
+        const double eigen[3] = {epszero, epszero*misfit_aniso, epszero*misfit_z};
+        const double h = hphisum[tid];
+        const double e[6] = {hom_strain_v[0] + s0->x - eigen[0]*h,
+                             hom_strain_v[1] + s1->x - eigen[1]*h,
+                             hom_strain_v[2] + s2->x - eigen[2]*h,
+                             hom_strain_v[3] + s3->x,
+                             hom_strain_v[4] + s4->x,
+                             hom_strain_v[5] + s5->x};
+        dfelas[tid] = inhom_elastic_partial(e, eigen, Chom, Chet, h);
     }
 }
 
@@ -586,11 +550,31 @@ void elasticInhomInit(InhomElasticCtx *ctx, cufftHandle plan,
 {
     ctx->rank = subdomain.rank;
 
-    if (simDomain.DIMENSION != 3)
+    if (simDomain.DIMENSION != 3 && simDomain.DIMENSION != 2)
     {
         if (ctx->rank == 0)
-            fprintf(stderr, "ELASTICITY_INHOM: only DIMENSION = 3 is supported.\n");
+            fprintf(stderr, "ELASTICITY_INHOM: only DIMENSION = 2 or 3 is supported.\n");
         MPI_Abort(comm, EXIT_FAILURE);
+    }
+
+    ctx->loading = simControls.inhomLoading;
+    ctx->model2d = simDomain.DIMENSION == 2 ? simControls.inhom2DMode : 0;
+    if (ctx->model2d && (simDomain.MESH_Z != 1 ||
+                        (ctx->model2d != 1 && ctx->model2d != 2)))
+    {
+        if (ctx->rank == 0) fprintf(stderr, "2D inhomogeneous elasticity requires MESH_Z=1 and INHOM_2D_MODE=1 or 2.\n");
+        MPI_Abort(comm, EXIT_FAILURE);
+    }
+    for (int face = 0; face < 2*simDomain.DIMENSION; ++face)
+    {
+        if (simControls.boundary[face][0].type != 3 ||
+            simControls.boundary[face][2].type != 3 ||
+            (simControls.FUNCTION_F == 2 && simControls.boundary[face][1].type != 3))
+        {
+            if (ctx->rank == 0)
+                fprintf(stderr, "ELASTICITY_INHOM requires periodic phi and composition boundaries on all active faces (and mu for FUNCTION_F=2).\n");
+            MPI_Abort(comm, EXIT_FAILURE);
+        }
     }
 
     if (simDomain.numPhases != 2)
@@ -633,11 +617,13 @@ void elasticInhomInit(InhomElasticCtx *ctx, cufftHandle plan,
     const symmetric_tensor es = simParams.eigen_strain[precip];
     ctx->epszero      = es.xx;
     ctx->misfit_aniso = (es.xx != 0.0) ? (es.yy / es.xx) : 1.0;
+    ctx->misfit_z = (es.xx != 0.0) ? (es.zz / es.xx) : 1.0;
     if (!isfinite(es.xx) || !isfinite(es.yy) || !isfinite(es.zz) ||
-        es.xx == 0.0 || es.yz != 0.0 || es.xz != 0.0 || es.xy != 0.0 || es.zz != es.yy)
+        es.xx == 0.0 || es.yz != 0.0 || es.xz != 0.0 || es.xy != 0.0 ||
+        (!ctx->model2d && es.zz != es.yy) || (ctx->model2d == 2 && es.zz != 0.0))
     {
         if (ctx->rank == 0)
-            fprintf(stderr, "ELASTICITY_INHOM requires finite diagonal eigenstrain with xx != 0 and yy == zz; unsupported tensors are rejected.\n");
+            fprintf(stderr, "ELASTICITY_INHOM requires finite diagonal eigenstrain with xx != 0 (3D: yy == zz; intrinsic 2D: zz == 0); shear eigenstrain is unsupported.\n");
         MPI_Abort(comm, EXIT_FAILURE);
     }
 
@@ -646,7 +632,8 @@ void elasticInhomInit(InhomElasticCtx *ctx, cufftHandle plan,
     const Stiffness_cubic Cm = simParams.Stiffness_c[matrix];
     for (const Stiffness_cubic C : {Cp, Cm})
         if (!isfinite(C.C11) || !isfinite(C.C12) || !isfinite(C.C44) ||
-            C.C44 <= 0.0 || C.C11-C.C12 <= 0.0 || C.C11+2.0*C.C12 <= 0.0)
+            C.C44 <= 0.0 || C.C11-C.C12 <= 0.0 ||
+            (ctx->model2d == 2 ? C.C11+C.C12 <= 0.0 : C.C11+2.0*C.C12 <= 0.0))
         {
             if (ctx->rank == 0) fprintf(stderr, "ELASTICITY_INHOM requires positive definite finite cubic stiffness.\n");
             MPI_Abort(comm, EXIT_FAILURE);
@@ -658,12 +645,30 @@ void elasticInhomInit(InhomElasticCtx *ctx, cufftHandle plan,
                         simParams.sigma_applied.zz, simParams.sigma_applied.yz,
                         simParams.sigma_applied.xz, simParams.sigma_applied.xy };
 
+    double prescribed[6]={simParams.homogeneous_strain.xx,simParams.homogeneous_strain.yy,
+        simParams.homogeneous_strain.zz,simParams.homogeneous_strain.yz,
+        simParams.homogeneous_strain.xz,simParams.homogeneous_strain.xy};
+    bool invalid=ctx->loading<0 || ctx->loading>2;
+    for(int j=0;j<6;++j){
+        invalid=invalid || !isfinite(prescribed[j]);
+        if(ctx->loading!=2)invalid=invalid || sig_h[j]!=0.;
+        if(ctx->loading!=1)invalid=invalid || prescribed[j]!=0.;
+    }
+    if(ctx->model2d){
+        invalid=invalid || sig_h[3]!=0. || sig_h[4]!=0. || prescribed[3]!=0. || prescribed[4]!=0.;
+        if(ctx->model2d==2)invalid=invalid || sig_h[2]!=0. || prescribed[2]!=0.;
+    }
+    if(invalid){
+        if(ctx->rank==0)fprintf(stderr,"Inconsistent dimensional model and mean-loading inputs: prescribe stress OR homogeneous strain; intrinsic 2D excludes zz and both 2D models exclude xz/yz.\n");
+        MPI_Abort(comm,EXIT_FAILURE);
+    }
+
     /* ---- solver controls ---- */
     ctx->Tol       = simControls.inhomTol;
     ctx->nelast    = simControls.inhomMaxIter;
     ctx->norm_calc = simControls.inhomNorm;
     ctx->strict    = simControls.inhomStrict;
-    if (!isfinite(ctx->misfit_aniso) || !isfinite(ctx->Tol) || ctx->Tol <= 0 || ctx->nelast <= 0 ||
+    if (!isfinite(ctx->misfit_aniso) || !isfinite(ctx->misfit_z) || !isfinite(ctx->Tol) || ctx->Tol <= 0 || ctx->nelast <= 0 ||
         (ctx->norm_calc != 0 && ctx->norm_calc != 1) || !ctx->strict ||
         simControls.padding != 1 || simDomain.MESH_X <= 0 || simDomain.MESH_Y <= 0 || simDomain.MESH_Z <= 0 ||
         !isfinite(simDomain.DELTA_X) || simDomain.DELTA_X <= 0 ||
@@ -727,7 +732,7 @@ void elasticInhomInit(InhomElasticCtx *ctx, cufftHandle plan,
     CUDA_CHECK(cudaMemcpy(ctx->Chom_d,    Chom_h, 3*sizeof(double), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(ctx->Chet_d,    Chet_h, 3*sizeof(double), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(ctx->sigappl_v, sig_h,  6*sizeof(double), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(ctx->hom_strain_v, 0, 6*sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(ctx->hom_strain_v, prescribed, 6*sizeof(double), cudaMemcpyHostToDevice));
 
     /* ---- CUB temp storage (max of Sum and Max requirements) ---- */
     size_t bytesSum = 0, bytesMax = 0;
@@ -754,9 +759,12 @@ void elasticInhomInit(InhomElasticCtx *ctx, cufftHandle plan,
 
     if (ctx->rank == 0)
     {
+        if (ctx->model2d)
+            printf("ELASTICITY_INHOM: 2D %s, MESH_Z=1; total out-of-plane strain is zero.\n",
+                   ctx->model2d == 1 ? "generalized plane strain" : "intrinsic");
         printf("ELASTICITY_INHOM: matrix phase %ld, precipitate phase %ld\n",
                ctx->matrixPhase, ctx->precipPhase);
-        printf("ELASTICITY_INHOM: eps0 = %le, aniso = %le\n", ctx->epszero, ctx->misfit_aniso);
+        printf("ELASTICITY_INHOM: eps0 = %le, ratios yy/xx = %le, zz/xx = %le\n", ctx->epszero, ctx->misfit_aniso, ctx->misfit_z);
         printf("ELASTICITY_INHOM: Chom = {%le, %le, %le}, Chet = {%le, %le, %le}\n",
                Chom_h[0], Chom_h[1], Chom_h[2], Chet_h[0], Chet_h[1], Chet_h[2]);
         printf("ELASTICITY_INHOM: Tol = %le, max iters = %ld, norm = %s\n",
@@ -778,7 +786,6 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
     const long   N        = ctx->num_items;
     const double szTotal  = (double)simDomain.MESH_X * simDomain.MESH_Y * simDomain.MESH_Z;
     const double invTotal = 1.0 / szTotal;
-    const int    anisoOne = (ctx->misfit_aniso == 1.0) ? 1 : 0;
 
     /* iterator views: r = real-space (INPLACE), f = Fourier (SHUFFLED) */
     auto [uxR,  uxRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->ux);
@@ -787,12 +794,6 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
     auto [uxF,  uxFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->ux);
     auto [uyF,  uyFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->uy);
     auto [uzF,  uzFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->uz);
-    auto [nxR,  nxRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->unewx);
-    auto [nyR,  nyRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->unewy);
-    auto [nzR,  nzRe]  = ITERS(CUFFT_XT_FORMAT_INPLACE,          ctx->unewz);
-    auto [nxF,  nxFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewx);
-    auto [nyF,  nyFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewy);
-    auto [nzF,  nzFe]  = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewz);
 
     /* BoxIterator has no default constructor: build pair arrays directly */
     using BIPair = std::pair<BoxIterator<cufftDoubleComplex>, BoxIterator<cufftDoubleComplex>>;
@@ -828,7 +829,7 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
     {
         inh_eigsts_hom<<<nbR, 256, 0, stream>>>(uxR, uxRe, uyR, uzR,
                                                 ctx->hphisum, ctx->Chom_d,
-                                                ctx->epszero, ctx->misfit_aniso);
+                                                ctx->epszero, ctx->misfit_aniso, ctx->misfit_z);
 
         ctx->ux->subFormat = CUFFT_XT_FORMAT_INPLACE;
         ctx->uy->subFormat = CUFFT_XT_FORMAT_INPLACE;
@@ -868,24 +869,15 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
     cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr3, &ctx->Cavg[2], N, stream);
     NCCL_CHECK(ncclAllReduce(ctx->Cavg, ctx->Cavg, 3, ncclDouble, ncclSum, ctx->nccl, stream));
 
-    if (anisoOne)
-    {
-        inh_eigsts_avg1<<<nbN, 256, 0, stream>>>(ctx->scr1, ctx->hphisum,
-                                                 ctx->Chom_d, ctx->Chet_d, ctx->epszero, N);
-        cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr1, &ctx->avgeigsts[0], N, stream);
-        NCCL_CHECK(ncclAllReduce(ctx->avgeigsts, ctx->avgeigsts, 1, ncclDouble, ncclSum, ctx->nccl, stream));
-    }
-    else
-    {
-        inh_eigsts_avg2<<<nbN, 256, 0, stream>>>(ctx->scr1, ctx->scr2, ctx->hphisum,
-                                                 ctx->Chom_d, ctx->Chet_d,
-                                                 ctx->epszero, ctx->misfit_aniso, N);
-        cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr1, &ctx->avgeigsts[0], N, stream);
-        cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr2, &ctx->avgeigsts[1], N, stream);
-        NCCL_CHECK(ncclAllReduce(ctx->avgeigsts, ctx->avgeigsts, 2, ncclDouble, ncclSum, ctx->nccl, stream));
-    }
+    inh_eigsts_avg_diag<<<nbN, 256, 0, stream>>>(ctx->scr1, ctx->scr2, ctx->scr3,
+        ctx->hphisum, ctx->Chom_d, ctx->Chet_d, ctx->epszero,
+        ctx->misfit_aniso, ctx->misfit_z, N);
+    cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr1, &ctx->avgeigsts[0], N, stream);
+    cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr2, &ctx->avgeigsts[1], N, stream);
+    cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr3, &ctx->avgeigsts[2], N, stream);
+    NCCL_CHECK(ncclAllReduce(ctx->avgeigsts, ctx->avgeigsts, 3, ncclDouble, ncclSum, ctx->nccl, stream));
 
-    inh_Sij<<<1, 1, 0, stream>>>(ctx->Cavg, ctx->S_d, invTotal);
+    inh_Sij<<<1, 1, 0, stream>>>(ctx->Cavg, ctx->S_d, invTotal, ctx->model2d);
 
     /* ---- 4. initial <dsigma> and homogeneous strain ---- */
     inh_persts_N<<<nbR, 256, 0, stream>>>(ctx->scr1, ctx->scr2, ctx->scr3,
@@ -902,8 +894,8 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
     cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr3, &ctx->avgpersts[5], N, stream);
     NCCL_CHECK(ncclAllReduce(ctx->avgpersts, ctx->avgpersts, 6, ncclDouble, ncclSum, ctx->nccl, stream));
 
-    inh_homstr<<<1, 1, 0, stream>>>(ctx->hom_strain_v, ctx->S_d, ctx->sigappl_v,
-                                    ctx->avgeigsts, ctx->avgpersts, anisoOne, invTotal);
+    if (ctx->loading != 1) inh_homstr<<<1, 1, 0, stream>>>(ctx->hom_strain_v, ctx->S_d, ctx->sigappl_v,
+                                    ctx->avgeigsts, ctx->avgpersts, invTotal, ctx->model2d);
 
     /* ---- 5. fixed-point iteration ---- */
     int  converge = 1;
@@ -912,11 +904,23 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
 
     while (converge)
     {
+        /* Fresh views follow the ping-pong descriptors. BoxIterator's box
+         * metadata is immutable, so rebinding is done by construction. */
+        auto [uxR, uxRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->ux);
+        auto [uyR, uyRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->uy);
+        auto [uzR, uzRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->uz);
+        auto [nxR, nxRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->unewx);
+        auto [nyR, nyRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->unewy);
+        auto [nzR, nzRe] = ITERS(CUFFT_XT_FORMAT_INPLACE, ctx->unewz);
+        auto [nxF, nxFe] = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewx);
+        auto [nyF, nyFe] = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewy);
+        auto [nzF, nzFe] = ITERS(CUFFT_XT_FORMAT_INPLACE_SHUFFLED, ctx->unewz);
+
         /* tau (overwrites strain in str_v, real space) */
         inh_ts<<<nbR, 256, 0, stream>>>(sR(0), sRe(0), sR(1), sR(2), sR(3), sR(4), sR(5),
                                         ctx->hom_strain_v, ctx->hphisum,
                                         ctx->Chom_d, ctx->Chet_d,
-                                        ctx->epszero, ctx->misfit_aniso);
+                                        ctx->epszero, ctx->misfit_aniso, ctx->misfit_z);
 
         for (int v = 0; v < 6; v++)
         {
@@ -961,8 +965,8 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
         cub::DeviceReduce::Sum(ctx->cubTemp, ctx->cubTempBytes, ctx->scr3, &ctx->avgpersts[5], N, stream);
         NCCL_CHECK(ncclAllReduce(ctx->avgpersts, ctx->avgpersts, 6, ncclDouble, ncclSum, ctx->nccl, stream));
 
-        inh_homstr2<<<1, 1, 0, stream>>>(ctx->hom_strain_v, ctx->S_d, ctx->sigappl_v,
-                                         ctx->avgeigsts, ctx->avgpersts, invTotal);
+        if (ctx->loading != 1) inh_homstr2<<<1, 1, 0, stream>>>(ctx->hom_strain_v, ctx->S_d, ctx->sigappl_v,
+                                         ctx->avgeigsts, ctx->avgpersts, invTotal, ctx->model2d);
 
         /* convergence norm */
         inh_diff_disp<<<nbR, 256, 0, stream>>>(nxR, nxRe, nyR, nzR, uxR, uyR, uzR,
@@ -994,8 +998,12 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
         if (!isfinite(disperror)) MPI_Abort(comm, EXIT_FAILURE);
         if (disperror < ctx->Tol) converge = 0;
 
-        /* u_old <- u_new */
-        inh_copy_new<<<nbR, 256, 0, stream>>>(nxR, nxRe, nyR, nzR, uxR, uyR, uzR);
+        /* The accepted iterate becomes persistent state without copying three
+         * complete complex volumes. Swap the descriptors, including the final
+         * iteration, so the next call warm-starts from the accepted iterate. */
+        std::swap(ctx->ux, ctx->unewx);
+        std::swap(ctx->uy, ctx->unewy);
+        std::swap(ctx->uz, ctx->unewz);
 
         iter++;
         if (iter >= ctx->nelast && converge)
@@ -1021,7 +1029,7 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
                                         sR(0), sRe(0), sR(1), sR(2), sR(3), sR(4), sR(5),
                                         ctx->hom_strain_v, ctx->hphisum,
                                         ctx->Chom_d, ctx->Chet_d,
-                                        ctx->epszero, ctx->misfit_aniso);
+                                        ctx->epszero, ctx->misfit_aniso, ctx->misfit_z);
 
     inh_bridge_dfeldphi<<<gridSize, blockSize, 0, stream>>>(
         phi, dfdphi, ctx->dfelas, ctx->precipPhase, simDomain.numPhases,
@@ -1029,6 +1037,80 @@ void computeDrivingForce_ElasticInhom(double **phi, double **dfdphi,
         subdomain.sizeX, subdomain.sizeY, subdomain.sizeZ);
 
     CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Opt-in validation output: raw h, total tensor strain and unchained dF/dh.
+    // No diagnostics or host copies are performed in ordinary simulations.
+    if (simControls.inhomDiagnostics == 2)
+    {
+        /* Bounded-memory physical-z plane export for large 3D volumes.
+         * The INPLACE descriptor is a compact [local_x][y][z] slab. */
+        const long nz = simDomain.MESH_Z;
+        long z = nz/2;
+        if (const char *text = std::getenv("MICROSIM_DIAGNOSTIC_Z_INDEX"))
+        {
+            char *end = nullptr;
+            z = std::strtol(text, &end, 10);
+            if (end == text || *end || z < 0 || z >= nz)
+            {
+                fprintf(stderr, "Invalid MICROSIM_DIAGNOSTIC_Z_INDEX for z extent %ld\n", nz);
+                MPI_Abort(comm, EXIT_FAILURE);
+            }
+        }
+        const size_t rows = (size_t)N/(size_t)nz;
+        std::vector<double> fields(8*rows);
+        double mean[6];
+        CUDA_CHECK(cudaMemcpy(mean, ctx->hom_strain_v, sizeof(mean), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy2D(fields.data(), sizeof(double), ctx->hphisum+z,
+                               nz*sizeof(double), sizeof(double), rows, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy2D(fields.data()+7*rows, sizeof(double), ctx->dfelas+z,
+                               nz*sizeof(double), sizeof(double), rows, cudaMemcpyDeviceToHost));
+        for (int v=0; v<6; ++v)
+        {
+            const cufftDoubleComplex *src =
+                (const cufftDoubleComplex*)ctx->str_v[v]->descriptor->data[0];
+            CUDA_CHECK(cudaMemcpy2D(fields.data()+(v+1)*rows, sizeof(double), src+z,
+                                   nz*sizeof(cufftDoubleComplex), sizeof(double), rows,
+                                   cudaMemcpyDeviceToHost));
+        }
+        char name[160];
+        snprintf(name, sizeof(name), "elastic_rank%d_step%ld_slice_z%ld.csv",
+                 ctx->rank, simControls.count, z);
+        FILE *fp = fopen(name, "w");
+        if (!fp) { perror(name); MPI_Abort(comm, EXIT_FAILURE); }
+        fprintf(fp, "h,exx,eyy,ezz,eyz,exz,exy,dfdh\n");
+        for (size_t i=0; i<rows; ++i)
+        {
+            fprintf(fp, "%.17g", fields[i]);
+            for (int v=0; v<6; ++v) fprintf(fp, ",%.17g", mean[v]+fields[(v+1)*rows+i]);
+            fprintf(fp, ",%.17g\n", fields[7*rows+i]);
+        }
+        if (fclose(fp)) { perror(name); MPI_Abort(comm, EXIT_FAILURE); }
+    }
+    else if (simControls.inhomDiagnostics)
+    {
+        std::vector<double> h(N), df(N);
+        std::vector<cufftDoubleComplex> strain[6];
+        double mean[6];
+        CUDA_CHECK(cudaMemcpy(h.data(), ctx->hphisum, N*sizeof(double), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(df.data(), ctx->dfelas, N*sizeof(double), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(mean, ctx->hom_strain_v, sizeof(mean), cudaMemcpyDeviceToHost));
+        for (int v=0; v<6; ++v) {
+            strain[v].resize(N);
+            CUDA_CHECK(cudaMemcpy(strain[v].data(), ctx->str_v[v]->descriptor->data[0],
+                                  N*sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
+        }
+        char name[128];
+        snprintf(name, sizeof(name), "elastic_rank%d_step%ld.csv", ctx->rank, simControls.count);
+        FILE *fp=fopen(name, "w");
+        if (!fp) { perror(name); MPI_Abort(comm, EXIT_FAILURE); }
+        fprintf(fp, "h,exx,eyy,ezz,eyz,exz,exy,dfdh\n");
+        for (long i=0; i<N; ++i) {
+            fprintf(fp, "%.17g", h[i]);
+            for (int v=0; v<6; ++v) fprintf(fp, ",%.17g", mean[v]+strain[v][i].x);
+            fprintf(fp, ",%.17g\n", df[i]);
+        }
+        if (fclose(fp)) { perror(name); MPI_Abort(comm, EXIT_FAILURE); }
+    }
 
     #undef sR
     #undef sRe

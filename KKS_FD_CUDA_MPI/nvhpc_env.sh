@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Source from the build/test wrappers; no system installation is modified.
+HPCSDK_VERSION=${HPCSDK_VERSION:-26.9}
+NVHPC_CUDA_VERSION=${NVHPC_CUDA_VERSION:-12.9}
+NVHPC_HOME=${NVHPC_HOME:-/opt/nvidia/hpc_sdk/Linux_x86_64/$HPCSDK_VERSION}
+NVHPC_CUDA_HOME=${NVHPC_CUDA_HOME:-$NVHPC_HOME/cuda/$NVHPC_CUDA_VERSION}
+MPI_HOME=${MPI_HOME:-$NVHPC_HOME/comm_libs/$NVHPC_CUDA_VERSION/hpcx/latest/ompi}
+MATH_HOME=${MATH_HOME:-$NVHPC_HOME/math_libs/$NVHPC_CUDA_VERSION}
+NCCL_HOME=${NCCL_HOME:-$NVHPC_HOME/comm_libs/$NVHPC_CUDA_VERSION/nccl}
+export OMPI_CXX=${OMPI_CXX:-g++} OMPI_CC=${OMPI_CC:-gcc}
+export PATH="$MPI_HOME/bin:$NVHPC_CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$MPI_HOME/lib:$MATH_HOME/lib64:$NCCL_HOME/lib:$NVHPC_HOME/comm_libs/$NVHPC_CUDA_VERSION/nvshmem/lib:$NVHPC_CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"

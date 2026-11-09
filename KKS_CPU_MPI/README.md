@@ -109,6 +109,30 @@ The importer reads global floating-point `COMP,PHI0,...` CUDA datasets. Quantize
 
 `make test` creates [VALIDATION.json](VALIDATION.json) and per-run logs under `build/validation/`. Checks include original CUDA local kernels, independent FFT/analytical/variational checks, a NumPy one-step oracle, rank invariance, empty slabs, threaded FFTs, restart across rank counts and error paths. Host kernel checks do not constitute GPU execution.
 
-This is a tested research implementation, not a claim of validated production kinetics or large-cluster scaling. No NVIDIA end-to-end reference trajectory was available. Exact agreement with the old program is not expected where its bugs or discretization conventions were corrected. The initial acceptance runs use small grids, with a 32³ execution smoke check. Validate your actual material parameters, grid convergence, interface resolution and timestep on your CPU cluster before scientific production.
+This is a tested research implementation, not a claim of validated production kinetics or large-cluster scaling. The CUDA module now has executed single-GPU F1 studies and a matching 64³ cubic mechanics comparison against this CPU engine; see [the study guide](../docs/elasticity/README.md). This does not establish equivalence of complete CPU/CUDA coupled trajectories. Exact agreement with the old program is not expected where its bugs or discretization conventions were corrected. The initial acceptance runs use small grids, with a 32³ execution smoke check. Validate your actual material parameters, grid convergence, interface resolution and timestep on your CPU cluster before scientific production.
 
 Source attribution remains with the original authors and user-supplied code. No new license or publication claim is made here.
+
+
+## C interface and two-dimensional models
+
+`include/elasticity_c.h` exposes the existing C++ engine to C callers; it is not
+a second independently maintained pure-C solver. Build `build/test_c_api` and
+`build/libelasticity_c.a` with the same MPI/FFTW toolchain. The C caller owns MPI
+and calls `ms_elastic_initialize(fft_threads)` before creating collective handles.
+
+Model 1 uses a singleton-z grid and generalized plane strain: retain 3D normal
+constitutive coupling, suppress xz/yz, and evaluate mean Ezz under stress-free
+loading. Model 2 is intrinsic 2D: require zero zz eigenstrain/loading and exclude
+all out-of-plane outputs. Input/output shear is tensor epsilon_xy, not gamma.
+Phase stiffnesses currently pass the existing 3D cubic positivity checks even
+for model 2; this is a restricted subset of stable intrinsic-2D stiffnesses.
+
+The `fixed` array specifies loading independently: all zeros evaluates E from
+prescribed mean stress; zero stress gives stress-free homogenization. Ones
+prescribe homogeneous strain. A mixed mask gives mixed loading. A nonzero
+stress component cannot also prescribe an excluded out-of-plane 2D component.
+
+The C example passed 1/2/4/16 MPI ranks (including empty slabs), threaded FFTs,
+and an independent dense 9x7 variational/finite-difference force comparison.
+See `tests/test_c_api.c`; a positive return refuses unconverged forces.

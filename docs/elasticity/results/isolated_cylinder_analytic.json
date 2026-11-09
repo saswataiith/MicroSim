@@ -1,0 +1,9 @@
+{
+  "assumptions": "Infinite matrix, isolated circular cylindrical inclusion, isotropic elastic phases, coherent interface, uniform isotropic eigenstrain; Ezz tends to zero in infinite stress-free matrix. Finite periodic GPS simulations include evaluated nonzero Ezz and finite concentration.",
+  "a": 0.0008823529411764706,
+  "traction_Pa": -220588235.29411766,
+  "inclusion_sigma_zz_Pa": -485294117.64705884,
+  "elastic_configurational_force_Pa": 463235.2941176471,
+  "chemical_drive_Pa": 2108160.0,
+  "critical_radius_nm": 60.793056145605824
+}
