@@ -40,6 +40,7 @@ def check(path,nx,ny,mode,dy=1.3,stress=(0,0,0),homogeneous=False,constrained=Fa
         s=np.zeros_like(e)
         for i in range(3):s[i]=c[0]*e[i]+c[1]*(e[(i+1)%3]+e[(i+2)%3])
         s[3:]=2*c[2]*e[3:]
+        if mode==2:s[2]=0.0 # intrinsic 2D has no out-of-plane stress
         return s
     def gradient(s):
         g=np.empty(2*n+nm)
